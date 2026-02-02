@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+        .status { padding: 20px; margin: 10px 0; border-radius: 8px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { padding: 12px 24px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        pre { background: #f4f4f4; padding: 15px; border-radius: 6px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Bharat Biz-Agent - API Connection Test</h1>
+    
+    <div class="info status">
+        <strong>Testing connection to:</strong> http://127.0.0.1:8000
+    </div>
+
+    <button onclick="testHealth()">Test Health Endpoint</button>
+    <button onclick="testRegister()">Test Registration</button>
+    <button onclick="clearResults()">Clear Results</button>
+
+    <div id="results"></div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000';
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`;
+            document.getElementById('results').appendChild(div);
+        }
+
+        function logJson(data) {
+            const pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(data, null, 2);
+            document.getElementById('results').appendChild(pre);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function testHealth() {
+            log('Testing /health endpoint...', 'info');
+            try {
+                const response = await fetch(`${API_BASE}/health`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ Health endpoint working!', 'success');
+                    logJson(data);
+                } else {
+                    log(`✗ Health endpoint returned status: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`✗ Failed to connect: ${error.message}`, 'error');
+                log('Make sure the backend is running on http://127.0.0.1:8000', 'error');
+            }
+        }
+
+        async function testRegister() {
+            const testEmail = `test${Date.now()}@example.com`;
+            const testPassword = 'password123';
+            
+            log(`Testing /auth/register with email: ${testEmail}...`, 'info');
+            try {
+                const response = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    mode: 'cors',
+                    body: JSON.stringify({
+                        email: testEmail,
+                        password: testPassword
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ Registration successful!', 'success');
+                    logJson(data);
+                } else {
+                    const error = await response.json();
+                    log(`✗ Registration failed with status: ${response.status}`, 'error');
+                    logJson(error);
+                }
+            } catch (error) {
+                log(`✗ Failed to register: ${error.message}`, 'error');
+                log('Check browser console for more details', 'error');
+                console.error('Registration error:', error);
+            }
+        }
+
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            setTimeout(testHealth, 500);
+        });
+    </script>
+</body>
+</html>
