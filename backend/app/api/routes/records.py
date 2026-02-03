@@ -74,16 +74,51 @@ def list_ledger(db: Session = Depends(get_db), current_user: User = Depends(get_
 
 
 @router.get("/inventory", response_model=list)
-def list_inventory(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Read-only inventory."""
+def list_inventory(
+    search: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Read-only inventory with search."""
     business = _get_business(db, current_user)
-    items = db.query(Inventory).filter(Inventory.business_id == business.id).all()
+    q = db.query(Inventory).filter(Inventory.business_id == business.id)
+    
+    if search:
+        q = q.filter(Inventory.item_name.ilike(f"%{search}%"))
+    
+    items = q.order_by(Inventory.item_name).all()
     return [
         {
             "id": i.id,
             "item_name": i.item_name,
             "quantity": float(i.quantity),
-            "unit": "pcs",
+            "unit": "strips" if "strip" not in i.item_name.lower() else "units",
+            "status": "Low Stock" if float(i.quantity) < 20 else "In Stock"
         }
         for i in items
     ]
+
+
+@router.get("/inventory/check/{item_name}")
+def check_stock(
+    item_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check if specific medicine is in stock (for Telegram bot)."""
+    business = _get_business(db, current_user)
+    item = db.query(Inventory).filter(
+        Inventory.business_id == business.id,
+        Inventory.item_name.ilike(f"%{item_name}%")
+    ).first()
+    
+    if not item:
+        return {"in_stock": False, "message": f"{item_name} stock mein nahi hai"}
+    
+    qty = float(item.quantity)
+    if qty == 0:
+        return {"in_stock": False, "message": f"{item.item_name} stock khatam ho gaya hai"}
+    elif qty < 20:
+        return {"in_stock": True, "quantity": qty, "message": f"{item.item_name} kam stock hai - {qty} units bacha hai"}
+    else:
+        return {"in_stock": True, "quantity": qty, "message": f"{item.item_name} stock mein hai - {qty} units available"}

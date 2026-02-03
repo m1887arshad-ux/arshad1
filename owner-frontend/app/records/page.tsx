@@ -40,7 +40,7 @@ export default function RecordsPage() {
           const data = await getLedgerEntries();
           setLedger(data);
         } else {
-          const data = await getInventoryItems();
+          const data = await getInventoryItems(search);
           setInventory(data);
         }
       } catch (err) {
@@ -87,6 +87,19 @@ export default function RecordsPage() {
             <input
               type="text"
               placeholder="Search invoices by customer or amount"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            />
+          </div>
+        )}
+
+        {tab === "inventory" && (
+          <div className="relative max-w-md">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search medicines (e.g., Crocin, Paracetamol)"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -163,19 +176,43 @@ export default function RecordsPage() {
           inventory.length === 0 ? (
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
               <p className="text-gray-500">No inventory items found.</p>
-              <p className="text-sm text-gray-400 mt-1">Add inventory items to track your stock.</p>
+              <p className="text-sm text-gray-400 mt-1">
+                {search ? "Try a different search term." : "Add medicines using seed script or API."}
+              </p>
             </div>
           ) : (
-          <Table<InventoryRow>
-            keyField="item"
-            columns={[
-              { key: "item", header: "Item" },
-              { key: "quantity", header: "Quantity", render: (r) => String(r.quantity) },
-              { key: "unit", header: "Unit" },
-              { key: "lastUpdated", header: "Last Updated" },
-            ]}
-            data={inventory}
-          />
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Medicine</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Quantity</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Unit</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {inventory.map((row) => (
+                  <tr key={row.id} className="hover:bg-gray-50/50">
+                    <td className="px-4 py-3 text-sm text-gray-900 font-medium">{row.item_name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{row.quantity}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{row.unit}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {row.status === "Low Stock" ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                          ⚠️ Low Stock
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          ✓ In Stock
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           )
         )}
       </div>

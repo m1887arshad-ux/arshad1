@@ -20,12 +20,21 @@ def get_or_create_customer(db: Session, business_id: int, name: str, phone: str 
     return c
 
 
-def create_invoice_for_customer(db: Session, business_id: int, customer_name: str, amount: float) -> Invoice:
-    """Create invoice and ledger entry. Called only after owner approval."""
+def create_invoice_for_customer(db: Session, business_id: int, customer_name: str, amount: float, auto_commit: bool = False) -> Invoice:
+    """Create invoice and ledger entry. Called only after owner approval.
+    
+    Args:
+        auto_commit: If True, commits immediately. If False, caller must commit.
+    """
     customer = get_or_create_customer(db, business_id, customer_name)
     inv = Invoice(customer_id=customer.id, amount=Decimal(str(amount)), status="draft")
     db.add(inv)
-    db.commit()
-    db.refresh(inv)
+    if auto_commit:
+        db.commit()
+        db.refresh(inv)
+    else:
+        db.flush()  # Get ID without committing
     add_ledger_entry(db, customer.id, debit=Decimal(str(amount)), description=f"Invoice #{inv.id}")
+    if auto_commit:
+        db.commit()
     return inv

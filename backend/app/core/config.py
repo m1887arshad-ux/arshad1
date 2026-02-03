@@ -1,6 +1,21 @@
-"""Application configuration. Environment variables override defaults."""
+"""Application configuration. Environment variables override defaults.
+
+Supports optional `backend/.env` loading for local development.
+"""
+
 import os
+from pathlib import Path
 from typing import List
+
+
+# Optional .env support (local dev). Safe no-op if python-dotenv isn't installed.
+try:
+    from dotenv import load_dotenv  # type: ignore
+
+    _BACKEND_DIR = Path(__file__).resolve().parents[2]
+    load_dotenv(dotenv_path=_BACKEND_DIR / ".env", override=False)
+except Exception:
+    pass
 
 
 class Settings:
@@ -22,6 +37,9 @@ class Settings:
 
     # Telegram (optional for local run without bot)
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+    # AI/LLM (Groq) - 🔑 ADD YOUR GROQ API KEY IN backend/.env
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
 
 settings = Settings()

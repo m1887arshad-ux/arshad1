@@ -76,23 +76,23 @@ def approve_action(action_id: int, db: Session = Depends(get_db), current_user: 
     # Atomic state transition with error handling
     try:
         action.status = "APPROVED"
-        db.commit()
-        db.refresh(action)
+        db.flush()  # Don't commit yet - keep transaction open
         logger.info(f"Action {action_id} approved by owner {current_user.id} for business {business.id}")
         
-        # Execute: update DB (invoice/ledger/etc.) and optionally notify Telegram
-        execute_action(db, action)
+        # Execute: update DB (invoice/ledger/etc.) - all in same transaction
+        execute_action(db, action, auto_commit=False)
         action.status = "EXECUTED"
+        
+        # Single atomic commit for all changes
         db.commit()
         db.refresh(action)
-        logger.info(f"Action {action_id} executed successfully")
+        logger.info(f"Action {action_id} executed successfully (atomic transaction)")
         return {"ok": True, "status": "EXECUTED"}
     except Exception as e:
-        db.rollback()
+        db.rollback()  # Reverts everything: approval + invoice + ledger
         logger.error(f"Action {action_id} execution failed: {str(e)}")
-        # Revert to DRAFT on failure so owner can retry
-        action.status = "DRAFT"
-        db.commit()
+        # Reload action state after rollback
+        db.refresh(action)
         raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
 
 

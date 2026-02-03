@@ -10,5 +10,6 @@ class Inventory(Base):
     business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
     item_name = Column(String(255), nullable=False)
     quantity = Column(Numeric(12, 2), default=0)
+    price = Column(Numeric(10, 2), default=50.0)  # ₹ per unit
 
     business = relationship("Business", backref="inventory_items")
