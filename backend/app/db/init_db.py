@@ -1,7 +1,7 @@
 """Create all tables. Run on app startup."""
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
-from app.models import user, business, customer, invoice, ledger, inventory, agent_action  # noqa: F401 - register models
+from app.models import user, business, customer, invoice, ledger, inventory, agent_action, conversation_state  # noqa: F401 - register models
 from app.models.user import User
 from app.core.security import get_password_hash
 

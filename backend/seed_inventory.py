@@ -11,8 +11,26 @@ def seed_inventory():
     # Get first business (or create one if needed)
     business = db.query(Business).first()
     if not business:
-        print("❌ No business found. Please create a business first via the dashboard.")
-        return
+        # Create default business
+        from app.models.user import User
+        user = db.query(User).first()
+        if not user:
+            print("❌ No user found. Database not initialized properly.")
+            return
+        
+        business = Business(
+            owner_id=user.id,
+            name="Bharat Pharmacy",
+            preferred_language="hinglish",
+            telegram_chat_id=None,
+            require_approval_invoices=True,
+            whatsapp_notifications=True,
+            agent_actions_enabled=True
+        )
+        db.add(business)
+        db.commit()
+        db.refresh(business)
+        print(f"✅ Created default business: {business.name}")
     
     business_id = business.id
     
@@ -206,6 +224,27 @@ def seed_inventory():
             "used_for": "Bone Strength, Osteoporosis Prevention",
             "price": 75.00,
             "units": 90
+        },
+        {
+            "name": "Codeine Phosphate 30mg",
+            "used_for": "Severe Pain, Persistent Cough",
+            "price": 120.00,
+            "units": 15,
+            "requires_prescription": True
+        },
+        {
+            "name": "Alprazolam 0.5mg",
+            "used_for": "Anxiety Disorder, Panic Attacks",
+            "price": 85.00,
+            "units": 20,
+            "requires_prescription": True
+        },
+        {
+            "name": "Tramadol 50mg",
+            "used_for": "Moderate to Severe Pain",
+            "price": 95.00,
+            "units": 18,
+            "requires_prescription": True
         }
     ]
     
@@ -220,7 +259,9 @@ def seed_inventory():
             business_id=business_id,
             item_name=med["name"],
             quantity=Decimal(str(med["units"])),
-            price=Decimal(str(med["price"]))
+            price=Decimal(str(med["price"])),
+            disease=med.get("used_for"),
+            requires_prescription=med.get("requires_prescription", False)
         )
         db.add(inventory)
     

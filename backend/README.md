@@ -1,128 +1,373 @@
 # Bharat Biz-Agent Backend (PS-2)
 
-**Central authority** connecting: **Telegram** (user interaction), **Owner Website** (approval & control), **Database** (source of truth).
+> **Intelligent business assistant** for Indian SMBs — Hinglish voice-to-action via Telegram, with human-in-the-loop safety.
 
-## Problem in simple words (PS-2)
+---
 
-Small business owners get requests over WhatsApp/Telegram (e.g. “Rahul ko 500 ka bill bana do”). They want an **agent** that turns these into **actions** (e.g. draft invoice) but **never executes** without owner approval. This backend:
+## 🎯 90-Second Demo Flow
 
-- Receives commands from **Telegram**
-- Converts them into **structured action drafts** (rule-based, no AI)
-- Stores drafts in the **database**
-- Exposes drafts to the **Owner Website**
-- **Executes** actions **only after** the owner approves
+```
+1. Open Telegram, find your bot
+2. Send: "Rahul ko 10 Paracetamol"
+3. Bot asks: "Confirm invoice for Rahul - 10 Paracetamol = ₹60?"
+4. Reply: "confirm"
+5. Bot: "✅ Invoice DRAFT created! Approve from Dashboard."
+6. Open Owner Dashboard (localhost:3000)
+7. Click "Approve" on the pending action
+8. Invoice is now EXECUTED and recorded
+```
 
-So: **Draft → Approve → Execute**. No autonomy. Trust-first.
+**Key insight**: The agent NEVER executes without owner approval. This is the "trust-first" architecture.
 
-## Why Telegram is used
+---
 
-Telegram is the **input channel** for business commands (e.g. Hinglish “500 ka invoice Rahul”). The backend parses these with **rule-based patterns** (regex/keywords), creates a **DRAFT** action, and replies: “Action drafted. Please approve from Owner Dashboard.” The owner then approves or rejects on the Owner Website. Execution (e.g. creating the invoice) happens only after approval.
+## 🏗️ Architecture Overview
 
-## Draft → Approve → Execute flow
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         BHARAT BIZ-AGENT                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐ │
+│  │  TELEGRAM   │───▶│     FSM     │───▶│    DECISION ENGINE      │ │
+│  │   (Input)   │    │ (Stateful)  │    │  (Creates DRAFT only)   │ │
+│  └─────────────┘    └──────┬──────┘    └───────────┬─────────────┘ │
+│                            │                       │                │
+│                    ┌───────▼───────┐               │                │
+│                    │   GROQ LLM    │               │                │
+│                    │ (Hinglish→    │               │                │
+│                    │  Intent ONLY) │               │                │
+│                    └───────────────┘               │                │
+│                                                    │                │
+│  ┌─────────────────────────────────────────────────▼──────────────┐│
+│  │                         DATABASE                               ││
+│  │  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌──────────────────┐ ││
+│  │  │ Invoices │ │  Ledger  │ │ Inventory │ │   AgentAction    │ ││
+│  │  │          │ │          │ │           │ │  status: DRAFT   │ ││
+│  │  └──────────┘ └──────────┘ └───────────┘ └────────┬─────────┘ ││
+│  └───────────────────────────────────────────────────┼────────────┘│
+│                                                      │             │
+│  ┌───────────────────────────────────────────────────▼───────────┐ │
+│  │                    OWNER DASHBOARD                            │ │
+│  │                                                               │ │
+│  │    [📋 Pending Actions]  ──▶  [✅ APPROVE] / [❌ REJECT]     │ │
+│  │                                      │                        │ │
+│  │                                      ▼                        │ │
+│  │                              ┌─────────────┐                  │ │
+│  │                              │  EXECUTOR   │                  │ │
+│  │                              │ (Runs ONLY  │                  │ │
+│  │                              │  after      │                  │ │
+│  │                              │  approval)  │                  │ │
+│  │                              └─────────────┘                  │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │                 PROACTIVE AGENT (Background)                  │ │
+│  │  Scans ledger for overdue payments → Creates DRAFT reminders  │ │
+│  │  (Owner must approve before any reminder is sent)             │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-1. **Telegram**: User sends e.g. “Rahul ko 500 ka bill bana do”.
-2. **Backend**: Rule-based parser extracts intent + entities → creates `AgentAction` with status `DRAFT`.
-3. **Owner Website**: Owner sees “Recent Agent Actions”, clicks **Review** → sees details → **Approve** or **Reject**.
-4. **Backend**: On **Approve**, backend executes (e.g. create invoice, update ledger) and sets status `EXECUTED`. On **Reject**, status `REJECTED`; no DB change.
-5. All actions are **logged** for trust and visibility.
+---
 
-## Why this is NOT a chatbot
+## 🔐 Safety Model: Draft → Approve → Execute
 
-This is **not** a conversational AI. There is **no LLM, no AI**. The “agent” is **rule-based** only: it matches patterns (e.g. “X ko Y ka bill”) and creates a structured draft. No autonomy: **every** action requires owner approval. The backend is a **control panel bridge**: Telegram in, drafts out, owner decides, then execution.
+**THIS IS THE CORE INNOVATION.**
 
-## How trust & safety is enforced
+```
+                     AI/LLM
+                       │
+                       ▼
+            ┌─────────────────────┐
+            │    INTENT ONLY      │  ← LLM extracts what user wants
+            │  (No execution)     │
+            └──────────┬──────────┘
+                       │
+                       ▼
+            ┌─────────────────────┐
+            │   CREATE DRAFT      │  ← Decision Engine validates
+            │  AgentAction.DRAFT  │
+            └──────────┬──────────┘
+                       │
+          ═════════════▼═════════════  ← HUMAN APPROVAL GATE
+                       │
+            ┌─────────────────────┐
+            │   OWNER REVIEWS     │  ← Dashboard shows pending
+            │   [APPROVE/REJECT]  │
+            └──────────┬──────────┘
+                       │
+                       ▼
+            ┌─────────────────────┐
+            │      EXECUTE        │  ← Executor runs ONLY after approval
+            │  (Update DB, etc.)  │
+            └─────────────────────┘
+```
 
-- **JWT authentication** for Owner Website; only the owner can approve/reject.
-- **No execution from Telegram**; Telegram only creates DRAFTs.
-- **Owner approval required** for every action; no silent execution.
-- **All actions logged** in DB (status: DRAFT / APPROVED / REJECTED / EXECUTED).
-- **Permission checks**: only the business owner can approve actions for their business.
-- **Clear comments** in code where safety/trust decisions are made.
+**Why this matters:**
+- AI hallucinations can't cause financial damage
+- Prompt injection attacks can't trigger execution
+- Owner maintains full control over all actions
+- Full audit trail of all proposed and executed actions
 
-## Tech stack
+---
 
-- **FastAPI** (Python)
-- **SQLAlchemy** ORM, **SQLite** (local-first, hackathon-safe)
-- **JWT** authentication
-- **python-telegram-bot**
-- **Docker** (mandatory)
+## 🤖 FSM vs LLM: The Hybrid Approach
 
-## Run locally (without Docker)
+### Why FSM First?
+
+| Aspect | FSM (Finite State Machine) | LLM (Groq) |
+|--------|---------------------------|------------|
+| Speed | <1ms | 300-2000ms |
+| Reliability | 100% deterministic | Probabilistic |
+| Cost | Free | API calls |
+| Handles | Known patterns | Ambiguous Hinglish |
+
+**Our approach:**
+1. FSM handles multi-step flows (invoice creation)
+2. LLM extracts intent from ambiguous messages
+3. FSM manages conversation state (persisted to DB)
+4. LLM output is VALIDATED before use
+
+### FSM State Persistence
+
+```python
+# OLD (BROKEN): In-memory state lost on restart
+FSM_STATE: Dict[int, dict] = {}  # ❌ Lost on server restart
+
+# NEW (FIXED): Database-persisted state
+class ConversationState(Base):  # ✅ Survives restarts
+    chat_id = Column(String, unique=True)
+    state = Column(String)  # "await_product", "await_quantity", etc.
+    payload = Column(JSON)  # {"product": "Paracetamol", "quantity": 10}
+```
+
+### LLM Role: Intent Planner ONLY
+
+```python
+# What LLM does:
+{
+    "intent": "create_invoice",  # ← Extracted
+    "product": "Paracetamol",    # ← Extracted
+    "quantity": 10,              # ← Extracted
+    "customer": "Rahul"          # ← Extracted
+}
+
+# What LLM does NOT do:
+- Execute database operations
+- Send messages to users
+- Make financial decisions
+- Access external services
+```
+
+---
+
+## 💊 Pharmacy-Specific Features
+
+### Prescription Compliance
+
+```python
+class Inventory(Base):
+    item_name = Column(String)
+    quantity = Column(Numeric)
+    price = Column(Numeric)
+    requires_prescription = Column(Boolean, default=False)  # ← COMPLIANCE
+    disease = Column(String)  # What it treats
+```
+
+**Compliance enforcement:**
+- If `requires_prescription=True`:
+  - Invoice DRAFT is flagged with ⚠️ warning
+  - Owner MUST verify prescription exists
+  - This is a LEGAL requirement for controlled medicines
+
+### Proactive Payment Reminders
+
+```python
+# Background scheduler (runs hourly)
+async def scan_and_create_reminders():
+    """
+    Scans ledger for customers with unpaid invoices >30 days.
+    Creates DRAFT reminder actions (NOT executed automatically).
+    Owner reviews and approves reminders from Dashboard.
+    """
+```
+
+**Example output:**
+```
+📋 Payment Reminder DRAFT Created
+Customer: Ramesh
+Overdue Amount: ₹1,500
+Days Overdue: 45
+
+[Approve Reminder] [Reject]
+```
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.10+
+- Node.js 18+ (for frontend)
+- Telegram Bot Token (from @BotFather)
+- Groq API Key (free at console.groq.com)
+
+### Backend Setup
 
 ```bash
 cd backend
+
+# Create virtual environment
 python -m venv venv
-# Windows: venv\Scripts\activate
-# Unix: source venv/bin/activate
+.\venv\Scripts\activate  # Windows
+
+# Install dependencies
 pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Configure environment
+copy .env.example .env
+# Edit .env with your keys:
+# - TELEGRAM_BOT_TOKEN=your_telegram_token
+# - GROQ_API_KEY=your_groq_key
+
+# Initialize database with sample data
+python -c "from app.db.init_db import init_db; init_db()"
+
+# Run server
+uvicorn app.main:app --reload --port 8000
 ```
 
-- API: http://localhost:8000  
-- Docs: http://localhost:8000/docs  
-- Health: http://localhost:8000/health
-
-**Telegram**: Set `TELEGRAM_BOT_TOKEN` in env (from BotFather). If unset, the app still runs; the bot is simply not started.
-
-**Database**: SQLite file `./bharat.db` is created on first run. Delete to reset.
-
-## Demo Steps (Fresh Start)
-
-1. **Delete `bharat.db`** (if exists) to start fresh
-2. **Start backend**: `uvicorn app.main:app --reload --port 8000`
-3. **Start frontend**: `cd owner-frontend && npm run dev`
-4. **Register**: Go to http://localhost:3000 → Click "Create account" → Enter email/password
-5. **Login**: Use credentials to log in
-6. **Setup Business**: Complete the 3-step wizard (Business name, Owner name, Language)
-7. **Dashboard**: See "Human Approval Required" message, empty actions list
-8. **Create Test Action** (via Telegram or API):
-   - Telegram: Send "Rahul ko 500 ka bill bana do" to your bot
-   - API: POST to `/agent/actions` (or use Swagger)
-9. **Review Action**: Dashboard shows pending action → Click "Review"
-10. **Approve/Reject**: Confirm approval → Action executed → Invoice created
-11. **Check Records**: Navigate to Records → See invoice in list
-
-## Full stack (frontend + backend)
-
-1. Start backend: `cd backend && uvicorn app.main:app --reload --port 8000`
-2. Start Owner frontend: `cd owner-frontend && npm run dev`
-3. Open http://localhost:3000 → Login (register first) → Setup business → Dashboard. Frontend calls backend at `http://localhost:8000` (set `NEXT_PUBLIC_API_URL` in frontend if needed).
-
-## Run with Docker
+### Frontend Setup
 
 ```bash
-cd backend
-docker build -t bharat-backend .
-docker run -p 8000:8000 -e TELEGRAM_BOT_TOKEN=your_token -e SECRET_KEY=your_secret bharat-backend
+cd owner-frontend
+
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+# Opens at http://localhost:3000
 ```
 
-Optional: mount a volume for DB persistence:
+### Link Telegram
 
-```bash
-docker run -p 8000:8000 -v $(pwd)/data:/app -e TELEGRAM_BOT_TOKEN=your_token bharat-backend
+1. Open Telegram, find your bot
+2. Send `/start`
+3. Note your Chat ID
+4. In Dashboard → Settings → Add Chat ID
+5. Now you can send commands!
+
+---
+
+## 📁 Project Structure
+
+```
+backend/
+├── app/
+│   ├── agent/
+│   │   ├── decision_engine.py    # Creates DRAFTs (never executes)
+│   │   ├── executor.py           # Runs ONLY after approval
+│   │   ├── intent_parser.py      # Rule-based parsing
+│   │   └── proactive_scheduler.py # Background payment reminders
+│   ├── api/routes/
+│   │   ├── agent.py              # Approve/reject endpoints
+│   │   ├── records.py            # Invoice/ledger APIs
+│   │   └── settings.py           # Business config
+│   ├── models/
+│   │   ├── agent_action.py       # DRAFT → APPROVED → EXECUTED
+│   │   ├── conversation_state.py # FSM persistence (NEW)
+│   │   ├── inventory.py          # Stock + prescription flag
+│   │   └── ...
+│   ├── telegram/
+│   │   ├── bot.py                # Telegram connection
+│   │   └── handlers.py           # FSM-first message handling
+│   └── main.py                   # FastAPI app + scheduler
+├── ai/
+│   ├── groq_client.py            # Groq API wrapper
+│   ├── intent_parser.py          # LLM intent extraction
+│   ├── prompts.py                # System prompts (constrained)
+│   └── fallback.py               # Keyword fallback
+└── requirements.txt
 ```
 
-(Ensure `DATABASE_URL` points to a path inside `/app` if you mount data.)
+---
 
-## API summary (Owner Website)
+## 🔒 Security Considerations
 
-| Method | Endpoint | Description |
-|--------|----------|--------------|
-| POST | /auth/register | Register owner (email, password) |
-| POST | /auth/login | Login → JWT |
-| GET | /auth/me | Current user (Bearer JWT) |
-| POST | /business/setup | Create/update business |
-| GET | /business | Get business |
-| GET | /agent/actions | Recent agent actions |
-| GET | /agent/actions/{id} | Action detail |
-| POST | /agent/actions/{id}/approve | Approve → execute |
-| POST | /agent/actions/{id}/reject | Reject |
-| GET | /records/invoices | Invoices (read-only) |
-| GET | /records/ledger | Ledger (read-only) |
-| GET | /records/inventory | Inventory (read-only) |
+| Threat | Mitigation |
+|--------|------------|
+| Prompt Injection | LLM output validated against Pydantic schema |
+| Unauthorized Execution | JWT auth + owner approval required |
+| Data Leakage | No sensitive data in LLM prompts |
+| Session Hijacking | Chat ID verified per business |
+| Replay Attacks | Actions have unique IDs + timestamps |
 
-## AI future hooks (comment only)
+---
 
-In `app/agent/intent_parser.py` a comment states:  
-*“LLM-based Hinglish understanding will be added here later.”*  
-No AI libraries are imported; no models are loaded. The backend is **hackathon-ready** and runs without AI.
+## 📊 API Endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/agent/approve/{id}` | Approve DRAFT action |
+| POST | `/api/agent/reject/{id}` | Reject DRAFT action |
+| GET | `/api/agent/pending` | List pending DRAFTs |
+| GET | `/api/records/invoices` | List invoices |
+| GET | `/api/records/ledger` | List ledger entries |
+| GET | `/api/settings/inventory` | Get stock levels |
+
+---
+
+## 🧪 Testing the Flow
+
+### Test 1: Stock Check (No Approval Needed)
+```
+Telegram: "Paracetamol hai?"
+Bot: "✅ Paracetamol: 500 units available"
+```
+
+### Test 2: Invoice Creation (Approval Needed)
+```
+Telegram: "Rahul ko 10 Dolo 650"
+Bot: "📋 Invoice Summary
+     Customer: Rahul
+     Product: Dolo 650
+     Quantity: 10
+     
+     'confirm' - Invoice banao
+     'cancel' - Band karo"
+
+Telegram: "confirm"
+Bot: "✅ Invoice DRAFT created!
+     Amount: ₹60.00
+     📱 Approve from Owner Dashboard."
+
+Dashboard: Click [Approve]
+Bot: Action executed!
+```
+
+### Test 3: Prescription Drug
+```
+Telegram: "Rahul ko 5 Alprazolam"
+Bot: "✅ Invoice DRAFT created!
+     ⚠️ PRESCRIPTION REQUIRED — Owner must verify
+     📱 Approve from Owner Dashboard."
+
+Dashboard: Shows warning, owner verifies prescription, then approves
+```
+
+---
+
+## 📝 License
+
+MIT License - Built for PS-2 Hackathon
+
+---
+
+## 🙏 Credits
+
+- **Groq** for free LLM API
+- **python-telegram-bot** for Telegram integration
+- **FastAPI** for blazing fast APIs

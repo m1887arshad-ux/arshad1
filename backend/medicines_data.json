@@ -184,5 +184,26 @@
     "used_for": "Bone Strength, Osteoporosis Prevention",
     "price": 75.0,
     "units": 90
+  },
+  {
+    "name": "Codeine Phosphate 30mg",
+    "used_for": "Severe Pain, Persistent Cough",
+    "price": 120.0,
+    "units": 15,
+    "requires_prescription": true
+  },
+  {
+    "name": "Alprazolam 0.5mg",
+    "used_for": "Anxiety Disorder, Panic Attacks",
+    "price": 85.0,
+    "units": 20,
+    "requires_prescription": true
+  },
+  {
+    "name": "Tramadol 50mg",
+    "used_for": "Moderate to Severe Pain",
+    "price": 95.0,
+    "units": 18,
+    "requires_prescription": true
   }
 ]

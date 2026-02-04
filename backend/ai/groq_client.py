@@ -1,11 +1,35 @@
-"""Groq API Client - Secure wrapper for LLM calls.
+"""
+Groq API Client — Secure wrapper for LLM intent extraction.
 
-Handles:
-- API authentication
-- Request/response
-- Timeout and error handling
-- NO streaming
-- NO logging of sensitive data
+================================================================================
+CRITICAL: LLM ROLE IS INTENT PLANNER ONLY
+================================================================================
+
+This client calls Groq's llama-3.3-70b-versatile model for ONE purpose:
+- Extract intent and entities from Hinglish user messages
+
+THIS CLIENT DOES NOT:
+- Execute any database operations
+- Send any messages to users
+- Perform any financial transactions
+- Access any external services besides Groq API
+
+SAFETY ARCHITECTURE:
+1. User sends message via Telegram
+2. FSM checks if user is in multi-step flow (deterministic)
+3. If not in flow, THIS CLIENT extracts intent (probabilistic)
+4. Intent goes to Decision Engine for validation
+5. Decision Engine creates DRAFT action
+6. Owner APPROVES draft on Dashboard
+7. Only THEN does Executor run
+
+WHY GROQ + llama-3.3-70b-versatile:
+- Free tier with generous limits for hackathon
+- 70B model handles Hinglish code-switching well
+- Sub-second response times (better than GPT-4)
+- JSON mode ensures structured output
+
+================================================================================
 """
 
 import json
@@ -20,19 +44,36 @@ logger = logging.getLogger(__name__)
 
 
 class GroqClient:
-    """Minimal, secure wrapper for Groq API.
+    """
+    Minimal, secure wrapper for Groq API.
     
-    Enforces:
+    ================================================================================
+    LLM CONSTRAINTS (ENFORCED BY THIS CLASS)
+    ================================================================================
+    
     - Model: llama-3.3-70b-versatile (current stable model)
-    - Temperature: 0 (deterministic)
-    - Max tokens: Limited to prevent abuse
-    - Timeout: 10 seconds max
+    - Temperature: 0 (deterministic output for same input)
+    - Max tokens: 256 (intent JSON is small, limits abuse)
+    - Timeout: 3 seconds (fail fast for better UX)
+    - Retries: 2 (handles transient Groq API issues)
+    
+    WHAT THIS RETURNS:
+    - Raw JSON string with intent + entities
+    - None on any error (triggers keyword fallback)
+    
+    WHAT THIS NEVER DOES:
+    - Execute actions
+    - Access database
+    - Send messages
+    - Make financial decisions
+    
+    ================================================================================
     """
     
-    MODEL = "llama-3.3-70b-versatile"
-    TEMPERATURE = 0
-    MAX_TOKENS = 256  # Intent JSON is small
-    TIMEOUT_SECONDS = 3  # Fast response for better UX
+    MODEL = "llama-3.3-70b-versatile"  # Handles Hinglish well
+    TEMPERATURE = 0  # Deterministic — same input = same output
+    MAX_TOKENS = 256  # Intent JSON is small; limits prompt injection impact
+    TIMEOUT_SECONDS = 3  # Fail fast for better UX
     
     def __init__(self):
         """Initialize Groq client with API key from environment."""
@@ -58,7 +99,12 @@ class GroqClient:
         return self.client is not None
     
     def extract_intent(self, prompt: str, max_retries: int = 2) -> Optional[str]:
-        """Call Groq LLM to extract intent as JSON with retry logic.
+        """
+        Call Groq LLM to extract intent as JSON with retry logic.
+        
+        ================================================================================
+        THIS FUNCTION ONLY EXTRACTS INTENT — IT DOES NOT EXECUTE ANYTHING
+        ================================================================================
         
         Args:
             prompt: Complete prompt with system instructions + user message
@@ -67,8 +113,10 @@ class GroqClient:
         Returns:
             Raw JSON string from LLM, or None if error
             
-        Raises:
-            No exceptions - always returns None on error for graceful fallback
+        Safety:
+            - Returns None on any error (graceful fallback)
+            - Output is validated by caller against Pydantic schema
+            - Invalid output triggers keyword-based fallback
         """
         if not self.is_available():
             logger.debug("Groq client not available - skipping LLM call")

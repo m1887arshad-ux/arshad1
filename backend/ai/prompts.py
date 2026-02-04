@@ -1,13 +1,57 @@
-"""System Prompts for Groq LLM - Intent Extraction ONLY.
+"""
+System Prompts for Groq LLM — Intent Extraction ONLY.
 
-These prompts enforce strict behavior:
-- NO chatbot responses
-- NO business logic
-- ONLY intent + entity extraction
-- ONLY JSON output
+================================================================================
+CRITICAL: PROMPT DESIGN FOR SAFETY
+================================================================================
+
+These prompts enforce STRICT behavior on the LLM:
+
+1. NO CHATBOT RESPONSES
+   - LLM must not engage in conversation
+   - LLM must not offer medical advice
+   - LLM must not make up information
+
+2. NO BUSINESS LOGIC
+   - LLM does not decide prices
+   - LLM does not validate inventory
+   - LLM does not execute transactions
+
+3. ONLY INTENT + ENTITY EXTRACTION
+   - Intent: what the user wants to do
+   - Entities: product, quantity, customer
+   - Confidence: how sure the LLM is
+
+4. ONLY JSON OUTPUT
+   - Forces structured, parseable output
+   - Enables Pydantic schema validation
+   - Invalid JSON triggers fallback
+
+WHY THIS MATTERS FOR SECURITY:
+- Prompt injection attacks are contained to intent extraction
+- Even if LLM hallucinates, output is validated against schema
+- Execution requires owner approval (separate from LLM)
+- FSM provides deterministic flow control
+
+================================================================================
 """
 
-# System prompt that defines LLM behavior constraints
+# ==============================================================================
+# SYSTEM PROMPT — Constrains LLM behavior
+# ==============================================================================
+# 
+# This prompt is CRITICAL for safety. It tells the LLM:
+# - You are NOT a chatbot
+# - You do NOT execute actions
+# - You ONLY extract structured data
+# - You ONLY output JSON
+#
+# The prompt is designed to:
+# - Minimize hallucination risk
+# - Force structured output
+# - Prevent prompt injection from triggering actions
+# ==============================================================================
+
 SYSTEM_PROMPT = """You are an intent extraction engine for an Indian pharmacy business bot.
 The business domain is FIXED as "pharmacy".
 
@@ -26,6 +70,13 @@ ALLOWED INTENTS (ONLY THESE):
 - get_invoice: User asking about existing invoice
 - approve_invoice: User approving a pending action
 - unknown: Anything else (medical advice, greetings, off-topic)
+
+SAFETY RULES:
+- Medical advice ("dose kya hai", "side effects", "kab lena hai"): intent = "unknown"
+- Symptom queries ("bukhar hai", "dard hai"): intent = "check_stock" (let symptom mapper handle)
+- Sexual/inappropriate content: intent = "unknown"
+- Greetings ("hello", "hi"): intent = "unknown"
+- Out-of-domain queries: intent = "unknown"
 
 OUTPUT RULES:
 - Output ONLY valid JSON.
@@ -57,7 +108,17 @@ NEVER explain your reasoning.
 ONLY output the JSON object."""
 
 
-# Few-shot examples to guide LLM behavior
+# ==============================================================================
+# FEW-SHOT EXAMPLES — Guide LLM output format
+# ==============================================================================
+#
+# Few-shot examples are essential because:
+# - They show the LLM exactly what format we expect
+# - They demonstrate Hinglish patterns
+# - They show how to use context
+# - They reduce hallucination by providing concrete templates
+# ==============================================================================
+
 FEW_SHOT_EXAMPLES = """
 EXAMPLES:
 
@@ -143,6 +204,69 @@ Output:
 }
 
 User: "side effects batao"
+Output:
+{
+  "intent": "unknown",
+  "product": null,
+  "quantity": null,
+  "customer": null,
+  "confidence": "low"
+}
+
+User: "only one"
+Context: last_product = "paracetamol", last_quantity = 5
+Output:
+{
+  "intent": "create_invoice",
+  "product": "paracetamol",
+  "quantity": 1,
+  "customer": null,
+  "confidence": "medium"
+}
+
+User: "mujhe"
+Context: last_product = "crocin"
+Output:
+{
+  "intent": "create_invoice",
+  "product": "crocin",
+  "quantity": null,
+  "customer": null,
+  "confidence": "medium"
+}
+
+User: "bukhar hai"
+Output:
+{
+  "intent": "check_stock",
+  "product": "bukhar",
+  "quantity": null,
+  "customer": null,
+  "confidence": "medium"
+}
+
+User: "sir dard ho raha hai"
+Output:
+{
+  "intent": "check_stock",
+  "product": "sir dard",
+  "quantity": null,
+  "customer": null,
+  "confidence": "medium"
+}
+
+User: "kab lena hai"
+Output:
+{
+  "intent": "unknown",
+  "product": null,
+  "quantity": null,
+  "customer": null,
+  "confidence": "low"
+}
+
+User: "isme kitna milega"
+Context: last_product = "paracetamol"
 Output:
 {
   "intent": "unknown",

@@ -1,7 +1,18 @@
 """
 Bharat Biz-Agent Backend — Central authority for PS-2.
-Connects: Telegram (user interaction), Owner Website (approval & control), Database (source of truth).
-No AI. Rule-based agent only. All actions require owner approval.
+
+ARCHITECTURE:
+- Telegram Bot: Customer interaction (Hinglish voice/text)
+- FastAPI Backend: Business logic, safety enforcement, persistence
+- SQLite DB: Source of truth for all state
+- Next.js Dashboard: Owner approval interface
+
+SAFETY MODEL:
+- All actions go through Draft → Approve → Execute pipeline
+- Proactive agent can CREATE drafts, never EXECUTE autonomously
+- LLM used only for intent parsing, not decision making
+
+No autonomous financial execution. Human-in-the-loop always.
 """
 from contextlib import asynccontextmanager
 
@@ -13,15 +24,29 @@ from app.api.routes import settings as settings_routes
 from app.core.config import settings
 from app.db.init_db import init_db
 from app.telegram.bot import start_bot_background, stop_bot_background
+from app.agent.proactive_scheduler import start_reminder_scheduler, stop_reminder_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize DB and start Telegram bot on startup; stop bot on shutdown."""
+    """
+    Application lifespan handler.
+    
+    Startup:
+    1. Initialize database tables
+    2. Start Telegram bot polling
+    3. Start proactive agent scheduler (payment reminders)
+    
+    Shutdown:
+    1. Stop Telegram bot gracefully
+    2. Stop proactive scheduler
+    """
     init_db()
     start_bot_background()
+    start_reminder_scheduler()  # PROACTIVE AGENT: Background payment reminder scanner
     yield
     stop_bot_background()
+    stop_reminder_scheduler()
 
 
 app = FastAPI(
@@ -48,4 +73,4 @@ app.include_router(settings_routes.router, prefix="/settings", tags=["settings"]
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "proactive_agent": "enabled"}
