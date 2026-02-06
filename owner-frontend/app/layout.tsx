@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "../styles/globals.css";
+import { ThemeProvider } from "./theme-provider";
 
 export const metadata: Metadata = {
   title: "Bharat Biz-Agent | Owner Control Panel",
@@ -12,9 +13,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-white text-gray-900 antialiased">
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased">
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

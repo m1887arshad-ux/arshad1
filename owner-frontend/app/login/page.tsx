@@ -29,6 +29,10 @@ export default function LoginPage() {
       setMessage("Email and password required");
       return;
     }
+    if (isRegister && password.length < 6) {
+      setMessage("Password must be at least 6 characters");
+      return;
+    }
     setLoading(true);
     try {
       if (isRegister) {

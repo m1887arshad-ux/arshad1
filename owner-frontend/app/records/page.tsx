@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { OwnerShell } from "@/components/OwnerShell";
 import { Table } from "@/components/Table";
-import { getCurrentOwner, getInvoices, getLedgerEntries, getInventoryItems } from "@/lib/api";
-import type { InvoiceRow, LedgerRow, InventoryRow } from "@/lib/api";
+import { 
+  getCurrentOwner, 
+  getInvoices, 
+  getLedgerEntries, 
+  getInventoryItems,
+  createInventoryItem,
+  updateInventoryItem,
+  deleteInventoryItem,
+  exportInvoicesCSV,
+  exportInventoryCSV,
+} from "@/lib/api";
+import type { InvoiceRow, LedgerRow, InventoryRow, InventoryCreateData } from "@/lib/api";
 
 type TabId = "invoices" | "ledger" | "inventory";
 
@@ -16,6 +26,33 @@ export default function RecordsPage() {
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Modal state for Add/Edit
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryRow | null>(null);
+  const [formData, setFormData] = useState<InventoryCreateData>({
+    item_name: "",
+    quantity: 0,
+    price: 50,
+    disease: "",
+    requires_prescription: false,
+  });
+  const [formError, setFormError] = useState("");
+  const [formLoading, setFormLoading] = useState(false);
+
+  // Handle Escape key to close modal
+  useEffect(() => {
+    if (!showModal) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowModal(false);
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showModal]);
 
   useEffect(() => {
     async function loadOwner() {
@@ -29,6 +66,11 @@ export default function RecordsPage() {
     loadOwner();
   }, []);
 
+  const loadInventory = useCallback(async () => {
+    const data = await getInventoryItems(search);
+    setInventory(data);
+  }, [search]);
+
   useEffect(() => {
     async function load() {
       setLoading(true);
@@ -40,8 +82,7 @@ export default function RecordsPage() {
           const data = await getLedgerEntries();
           setLedger(data);
         } else {
-          const data = await getInventoryItems(search);
-          setInventory(data);
+          await loadInventory();
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "";
@@ -51,7 +92,7 @@ export default function RecordsPage() {
       }
     }
     load();
-  }, [tab, search]);
+  }, [tab, search, loadInventory]);
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "invoices", label: "Invoices" },
@@ -59,18 +100,84 @@ export default function RecordsPage() {
     { id: "inventory", label: "Inventory" },
   ];
 
+  // Open Add Modal
+  const handleAddNew = () => {
+    setEditingItem(null);
+    setFormData({
+      item_name: "",
+      quantity: 0,
+      price: 50,
+      disease: "",
+      requires_prescription: false,
+    });
+    setFormError("");
+    setShowModal(true);
+  };
+
+  // Open Edit Modal
+  const handleEdit = (item: InventoryRow) => {
+    setEditingItem(item);
+    setFormData({
+      item_name: item.item_name,
+      quantity: item.quantity,
+      price: item.price || 50,
+      disease: item.disease || "",
+      requires_prescription: item.requires_prescription || false,
+    });
+    setFormError("");
+    setShowModal(true);
+  };
+
+  // Delete item
+  const handleDelete = async (item: InventoryRow) => {
+    if (!confirm(`Are you sure you want to delete "${item.item_name}"?`)) return;
+    
+    try {
+      await deleteInventoryItem(item.id);
+      await loadInventory();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete");
+    }
+  };
+
+  // Submit form (Add/Edit)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError("");
+    
+    if (!formData.item_name.trim()) {
+      setFormError("Medicine name is required");
+      return;
+    }
+    
+    setFormLoading(true);
+    try {
+      if (editingItem) {
+        await updateInventoryItem(editingItem.id, formData);
+      } else {
+        await createInventoryItem(formData);
+      }
+      setShowModal(false);
+      await loadInventory();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
   return (
     <OwnerShell title="Records & Ledger" ownerName={ownerName}>
       <div className="space-y-6">
         <h2 className="text-2xl font-bold text-gray-900">Records & Ledger</h2>
 
-        <div className="flex border-b border-gray-200 gap-6">
+        <div className="flex border-b border-gray-200 gap-4 md:gap-6 overflow-x-auto">
           {tabs.map(({ id, label }) => (
             <button
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-colors ${
+              className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
                 tab === id
                   ? "border-primary text-primary"
                   : "border-transparent text-gray-500 hover:text-gray-700"
@@ -82,28 +189,53 @@ export default function RecordsPage() {
         </div>
 
         {tab === "invoices" && (
-          <div className="relative max-w-md">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search invoices by customer or amount"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1 max-w-md">
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search invoices by customer or amount"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+            </div>
+            <button
+              onClick={() => exportInvoicesCSV()}
+              className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+            >
+              <DownloadIcon className="w-5 h-5" />
+              Export CSV
+            </button>
           </div>
         )}
 
         {tab === "inventory" && (
-          <div className="relative max-w-md">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search medicines (e.g., Crocin, Paracetamol)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1 max-w-md">
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search medicines (e.g., Crocin, Paracetamol)"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+            </div>
+            <button
+              onClick={() => exportInventoryCSV()}
+              className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+            >
+              <DownloadIcon className="w-5 h-5" />
+              Export CSV
+            </button>
+            <button
+              onClick={handleAddNew}
+              className="flex items-center gap-2 px-4 py-3 bg-primary text-white font-medium rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap"
+            >
+              <PlusIcon className="w-5 h-5" />
+              Add Medicine
+            </button>
           </div>
         )}
 
@@ -118,7 +250,7 @@ export default function RecordsPage() {
               <p className="text-sm text-gray-400 mt-1">Approved invoice actions will appear here.</p>
             </div>
           ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -127,7 +259,7 @@ export default function RecordsPage() {
                     Customer
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900 hidden sm:table-cell">
                     View/Download
                   </th>
                 </tr>
@@ -138,7 +270,7 @@ export default function RecordsPage() {
                     <td className="px-4 py-3 text-sm text-gray-700">{row.date}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{row.customer}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{row.amount}</td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm hidden sm:table-cell">
                       <span className="text-primary hover:underline cursor-pointer">
                         View PDF
                       </span>
@@ -177,36 +309,58 @@ export default function RecordsPage() {
             <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
               <p className="text-gray-500">No inventory items found.</p>
               <p className="text-sm text-gray-400 mt-1">
-                {search ? "Try a different search term." : "Add medicines using seed script or API."}
+                {search ? "Try a different search term." : "Click 'Add Medicine' to add items."}
               </p>
             </div>
           ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Medicine</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Quantity</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Unit</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900 hidden sm:table-cell">Price</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {inventory.map((row) => (
                   <tr key={row.id} className="hover:bg-gray-50/50">
-                    <td className="px-4 py-3 text-sm text-gray-900 font-medium">{row.item_name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                      <div>{row.item_name}</div>
+                      {row.requires_prescription && (
+                        <span className="text-xs text-red-600">🔴 Rx Required</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{row.quantity}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{row.unit}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 hidden sm:table-cell">₹{row.price || 50}</td>
                     <td className="px-4 py-3 text-sm">
                       {row.status === "Low Stock" ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                          ⚠️ Low Stock
+                          ⚠️ Low
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          ✓ In Stock
+                          ✓ OK
                         </span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(row)}
+                          className="text-primary hover:text-primary/80 font-medium"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(row)}
+                          className="text-red-600 hover:text-red-800 font-medium"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -216,6 +370,137 @@ export default function RecordsPage() {
           )
         )}
       </div>
+
+      {/* Add/Edit Modal */}
+      {showModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowModal(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowModal(false);
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {editingItem ? "Edit Medicine" : "Add New Medicine"}
+                </h3>
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <CloseIcon className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Medicine Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.item_name}
+                    onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="e.g., Paracetamol 500mg"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Quantity
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Price (₹)
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.price}
+                      onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                      min="0"
+                      step="0.5"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Treats (Disease/Symptoms)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.disease || ""}
+                    onChange={(e) => setFormData({ ...formData, disease: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="e.g., Fever, Pain, Headache"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Expiry Date
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.expiry_date || ""}
+                    onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="requires_prescription"
+                    checked={formData.requires_prescription}
+                    onChange={(e) => setFormData({ ...formData, requires_prescription: e.target.checked })}
+                    className="w-4 h-4 text-primary rounded focus:ring-primary"
+                  />
+                  <label htmlFor="requires_prescription" className="text-sm text-gray-700">
+                    Requires Prescription (Rx)
+                  </label>
+                </div>
+
+                {formError && (
+                  <p className="text-sm text-red-600">{formError}</p>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={formLoading}
+                    className="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {formLoading ? "Saving…" : editingItem ? "Update" : "Add"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="mt-12 pt-6 border-t border-gray-200 text-center text-sm text-gray-500 space-x-4">
         <a href="#" className="hover:text-primary">Help & Support</a>
@@ -228,18 +513,32 @@ export default function RecordsPage() {
 
 function SearchIcon({ className = "" }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-      />
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+  );
+}
+
+function PlusIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function DownloadIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
     </svg>
   );
 }

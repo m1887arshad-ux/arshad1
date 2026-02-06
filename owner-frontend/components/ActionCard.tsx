@@ -13,18 +13,22 @@ export function ActionCard({ action }: ActionCardProps) {
 
   return (
     <tr className="border-b border-gray-200 hover:bg-gray-50/50 transition-colors">
-      <td className="py-4 px-4 text-gray-900">{action.action}</td>
+      <td className="py-4 px-4 text-gray-900">
+        <div className="max-w-xs sm:max-w-none truncate sm:whitespace-normal">
+          {action.action}
+        </div>
+      </td>
       <td className="py-4 px-4">
-        <StatusBadge status={action.status} />
-        {needsReview && (
-          <span className="ml-3 inline-block">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <StatusBadge status={action.status} />
+          {needsReview && (
             <PrimaryButton href={`/approve/${action.id}`} variant="warning" icon={<CheckIcon />}>
               Review
             </PrimaryButton>
-          </span>
-        )}
+          )}
+        </div>
       </td>
-      <td className="py-4 px-4 text-gray-600">{action.time}</td>
+      <td className="py-4 px-4 text-gray-600 hidden sm:table-cell">{action.time}</td>
     </tr>
   );
 }

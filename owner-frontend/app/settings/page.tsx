@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { OwnerShell } from "@/components/OwnerShell";
 import { getCurrentOwner, getSettings, updateSettings, type OwnerSettings } from "@/lib/api";
+import { useTheme } from "../theme-provider";
 
 const LANGUAGES = ["Hindi", "English", "Hinglish", "Marathi", "Tamil", "Gujarati"];
 
@@ -10,6 +11,8 @@ export default function SettingsPage() {
   const [ownerName, setOwnerName] = useState("Owner");
   const [settings, setSettings] = useState<OwnerSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     async function load() {
@@ -29,16 +32,34 @@ export default function SettingsPage() {
 
   async function toggle(key: keyof OwnerSettings, value: boolean) {
     if (!settings) return;
+    const prev = { ...settings };
     const next = { ...settings, [key]: value };
     setSettings(next);
-    await updateSettings(next);
+    try {
+      await updateSettings(next);
+      setToast({ type: "success", message: "Setting updated" });
+      setTimeout(() => setToast(null), 2000);
+    } catch {
+      setSettings(prev); // Rollback on failure
+      setToast({ type: "error", message: "Failed to update setting" });
+      setTimeout(() => setToast(null), 3000);
+    }
   }
 
   async function setLanguage(lang: string) {
     if (!settings) return;
+    const prev = { ...settings };
     const next = { ...settings, preferredLanguage: lang };
     setSettings(next);
-    await updateSettings(next);
+    try {
+      await updateSettings(next);
+      setToast({ type: "success", message: "Language updated" });
+      setTimeout(() => setToast(null), 2000);
+    } catch {
+      setSettings(prev); // Rollback on failure
+      setToast({ type: "error", message: "Failed to update language" });
+      setTimeout(() => setToast(null), 3000);
+    }
   }
 
   if (loading || !settings) {
@@ -51,6 +72,14 @@ export default function SettingsPage() {
 
   return (
     <OwnerShell title="Control Settings" ownerName={ownerName}>
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+          toast.type === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+        }`}>
+          {toast.message}
+        </div>
+      )}
       <div className="max-w-2xl space-y-8">
         <h2 className="text-2xl font-bold text-gray-900">Owner Control Panel</h2>
 
@@ -90,9 +119,37 @@ export default function SettingsPage() {
         </section>
 
         <section>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Language Preferences</h3>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Appearance</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <MoonIcon />
+              <div>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Dark Mode</span>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Switch between light and dark theme</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={theme === "dark"}
+              onClick={toggleTheme}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                theme === "dark" ? "bg-primary" : "bg-gray-200"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                  theme === "dark" ? "translate-x-5" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Language Preferences</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Preferred Language
             </label>
             <select
@@ -184,6 +241,14 @@ function AgentIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
     </svg>
   );
 }
