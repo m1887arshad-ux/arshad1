@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import { ActionCard } from "@/components/ActionCard";
 import { 
@@ -16,7 +17,13 @@ import {
 
 const POLL_INTERVAL = 10000; // 10 seconds
 
+function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("bharat_owner_token");
+}
+
 export default function DashboardPage() {
+  const router = useRouter();
   const [ownerName, setOwnerName] = useState("Owner");
   const [actions, setActions] = useState<AgentAction[]>([]);
   const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
@@ -25,6 +32,13 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isPolling, setIsPolling] = useState(true);
+
+  // Check auth before rendering
+  useEffect(() => {
+    if (!getStoredToken()) {
+      router.replace("/login");
+    }
+  }, [router]);
 
   // Fetch function for polling
   const fetchData = useCallback(async (showLoading = false) => {
@@ -47,7 +61,13 @@ export default function DashboardPage() {
         return;
       }
       // Don't show error during background polling
-      if (showLoading) setError(msg || "Failed to load data");
+      if (showLoading) {
+        if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+          setError("Cannot connect to server. Please make sure the backend is running.");
+        } else {
+          setError(msg || "Failed to load data");
+        }
+      }
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -56,6 +76,8 @@ export default function DashboardPage() {
   // Initial load
   useEffect(() => {
     async function load() {
+      if (!getStoredToken()) return; // Wait for auth check
+      
       try {
         const owner = await getCurrentOwner();
         setOwnerName(owner.name);
@@ -66,7 +88,11 @@ export default function DashboardPage() {
           window.location.href = "/setup";
           return;
         }
-        setError(msg || "Failed to load data");
+        if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+          setError("Cannot connect to server. Please make sure the backend is running.");
+        } else {
+          setError(msg || "Failed to load data");
+        }
         setLoading(false);
       }
     }

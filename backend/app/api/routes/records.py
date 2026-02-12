@@ -1,5 +1,9 @@
 """Records: read-only invoices, ledger, inventory for Owner Website."""
+import io
+import csv
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_current_user
@@ -10,6 +14,15 @@ from app.models.ledger import Ledger
 from app.models.inventory import Inventory
 from app.models.customer import Customer
 
+
+class InventoryCreate(BaseModel):
+    item_name: str
+    quantity: float
+    price: float = 0
+    disease: str = ""
+    requires_prescription: bool = False
+
+
 router = APIRouter()
 
 
@@ -18,6 +31,41 @@ def _get_business(db: Session, user: User) -> Business:
     if not b:
         raise HTTPException(status_code=404, detail="Business not set up")
     return b
+
+
+@router.get("/invoices/export/csv")
+def export_invoices_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Export invoices as CSV file."""
+    business = _get_business(db, current_user)
+    
+    # Query invoices with customer details
+    rows = (
+        db.query(Invoice, Customer)
+        .join(Customer, Invoice.customer_id == Customer.id)
+        .filter(Customer.business_id == business.id)
+        .order_by(Invoice.created_at.desc())
+        .all()
+    )
+    
+    # Create CSV content
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Date", "Customer", "Amount", "Status"])
+    
+    for inv, customer in rows:
+        date_str = inv.created_at.strftime("%d %b, %Y") if inv.created_at else ""
+        amount = f"₹ {inv.amount:,.2f}" if inv.amount else "₹ 0.00"
+        writer.writerow([date_str, customer.name, amount, inv.status or "Pending"])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=invoices.csv"}
+    )
 
 
 @router.get("/invoices", response_model=list)
@@ -73,6 +121,43 @@ def list_ledger(db: Session = Depends(get_db), current_user: User = Depends(get_
     ]
 
 
+@router.get("/inventory/export/csv")
+def export_inventory_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Export inventory as CSV file."""
+    business = _get_business(db, current_user)
+    
+    # Query inventory items
+    items = db.query(Inventory).filter(Inventory.business_id == business.id).order_by(Inventory.item_name).all()
+    
+    # Create CSV content
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Medicine Name", "Quantity", "Unit", "Price", "Disease", "Requires Prescription"])
+    
+    for item in items:
+        unit = "strips" if "strip" not in item.item_name.lower() else "units"
+        price = f"₹ {item.price:,.2f}" if item.price else "₹ 0.00"
+        requires_rx = "Yes" if item.requires_prescription else "No"
+        writer.writerow([
+            item.item_name,
+            item.quantity or 0,
+            unit,
+            price,
+            item.disease or "-",
+            requires_rx
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=inventory.csv"}
+    )
+
+
 @router.get("/inventory", response_model=list)
 def list_inventory(
     search: str | None = Query(None),
@@ -122,3 +207,62 @@ def check_stock(
         return {"in_stock": True, "quantity": qty, "message": f"{item.item_name} kam stock hai - {qty} units bacha hai"}
     else:
         return {"in_stock": True, "quantity": qty, "message": f"{item.item_name} stock mein hai - {qty} units available"}
+
+
+@router.post("/inventory", response_model=dict)
+def add_inventory_item(
+    data: InventoryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a new inventory item."""
+    business = _get_business(db, current_user)
+    
+    # Check if item already exists
+    existing = db.query(Inventory).filter(
+        Inventory.business_id == business.id,
+        Inventory.item_name.ilike(f"%{data.item_name}%")
+    ).first()
+    
+    if existing:
+        # Update quantity if exists
+        existing.quantity = data.quantity
+        db.commit()
+        db.refresh(existing)
+        return {"id": existing.id, "item_name": existing.item_name, "quantity": existing.quantity, "status": "updated"}
+    
+    # Create new item
+    item = Inventory(
+        business_id=business.id,
+        item_name=data.item_name,
+        quantity=data.quantity,
+        price=data.price,
+        disease=data.disease,
+        requires_prescription=data.requires_prescription
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {"id": item.id, "item_name": item.item_name, "quantity": item.quantity, "status": "created"}
+
+
+@router.delete("/inventory/{item_id}", response_model=dict)
+def delete_inventory_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete an inventory item."""
+    business = _get_business(db, current_user)
+    
+    item = db.query(Inventory).filter(
+        Inventory.id == item_id,
+        Inventory.business_id == business.id
+    ).first()
+    
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    db.delete(item)
+    db.commit()
+    return {"ok": True, "id": item_id}

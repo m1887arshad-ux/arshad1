@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import { Table } from "@/components/Table";
 import { 
@@ -8,17 +9,28 @@ import {
   getInvoices, 
   getLedgerEntries, 
   getInventoryItems,
-  createInventoryItem,
-  updateInventoryItem,
-  deleteInventoryItem,
+  addInventoryItem,
+  removeInventoryItem,
   exportInvoicesCSV,
   exportInventoryCSV,
 } from "@/lib/api";
-import type { InvoiceRow, LedgerRow, InventoryRow, InventoryCreateData } from "@/lib/api";
+import type { InventoryItemCreate } from "@/lib/api";
 
 type TabId = "invoices" | "ledger" | "inventory";
 
+// Type aliases for records data
+type InvoiceRow = any;
+type LedgerRow = any;
+type InventoryRow = any;
+type InventoryCreateData = InventoryItemCreate;
+
+function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("bharat_owner_token");
+}
+
 export default function RecordsPage() {
+  const router = useRouter();
   const [ownerName, setOwnerName] = useState("Owner");
   const [tab, setTab] = useState<TabId>("invoices");
   const [search, setSearch] = useState("");
@@ -40,6 +52,13 @@ export default function RecordsPage() {
   const [formError, setFormError] = useState("");
   const [formLoading, setFormLoading] = useState(false);
 
+  // Check auth before rendering
+  useEffect(() => {
+    if (!getStoredToken()) {
+      router.replace("/login");
+    }
+  }, [router]);
+
   // Handle Escape key to close modal
   useEffect(() => {
     if (!showModal) return;
@@ -56,6 +75,8 @@ export default function RecordsPage() {
 
   useEffect(() => {
     async function loadOwner() {
+      if (!getStoredToken()) return; // Wait for auth check
+      
       try {
         const owner = await getCurrentOwner();
         setOwnerName(owner.name);
@@ -133,7 +154,7 @@ export default function RecordsPage() {
     if (!confirm(`Are you sure you want to delete "${item.item_name}"?`)) return;
     
     try {
-      await deleteInventoryItem(item.id);
+      await removeInventoryItem(item.id);
       await loadInventory();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete");
@@ -153,16 +174,38 @@ export default function RecordsPage() {
     setFormLoading(true);
     try {
       if (editingItem) {
-        await updateInventoryItem(editingItem.id, formData);
+        // Delete old item and add new one
+        await removeInventoryItem(editingItem.id);
+        await addInventoryItem(formData);
       } else {
-        await createInventoryItem(formData);
+        await addInventoryItem(formData);
       }
       setShowModal(false);
+      setEditingItem(null);
+      setFormData({ item_name: "", quantity: 0, price: 50, disease: "", requires_prescription: false });
       await loadInventory();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setFormLoading(false);
+    }
+  };
+
+  // Export invoices CSV
+  const handleExportInvoices = async () => {
+    try {
+      await exportInvoicesCSV();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to export invoices");
+    }
+  };
+
+  // Export inventory CSV
+  const handleExportInventory = async () => {
+    try {
+      await exportInventoryCSV();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to export inventory");
     }
   };
 
@@ -201,7 +244,7 @@ export default function RecordsPage() {
               />
             </div>
             <button
-              onClick={() => exportInvoicesCSV()}
+              onClick={handleExportInvoices}
               className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
             >
               <DownloadIcon className="w-5 h-5" />
@@ -223,7 +266,7 @@ export default function RecordsPage() {
               />
             </div>
             <button
-              onClick={() => exportInventoryCSV()}
+              onClick={handleExportInventory}
               className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
             >
               <DownloadIcon className="w-5 h-5" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import {
   getCurrentOwner,
@@ -29,7 +30,13 @@ import {
   Line,
 } from "recharts";
 
+function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("bharat_owner_token");
+}
+
 export default function AnalyticsPage() {
+  const router = useRouter();
   const [ownerName, setOwnerName] = useState("Owner");
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [dailySales, setDailySales] = useState<DailySalesData[]>([]);
@@ -37,8 +44,16 @@ export default function AnalyticsPage() {
   const [actionStats, setActionStats] = useState<ActionStats | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Check auth before rendering
+  useEffect(() => {
+    if (!getStoredToken()) {
+      router.replace("/login");
+    }
+  }, [router]);
+
   useEffect(() => {
     async function load() {
+      if (!getStoredToken()) return;
       try {
         const [owner, summaryData, sales, products, stats] = await Promise.all([
           getCurrentOwner(),
