@@ -96,8 +96,9 @@ def parse_intent_deterministic(
         }
     
     # Check for quantity (numeric patterns)
+    # *** FIX: Accept quantity in STOCK_CONFIRMED or ORDERING mode ***
     quantity = extract_quantity(text_lower)
-    if quantity and current_mode == ConversationMode.ORDERING:
+    if quantity and current_mode in [ConversationMode.ORDERING, ConversationMode.STOCK_CONFIRMED]:
         return {
             "intent": IntentType.PROVIDE_QUANTITY,
             "confidence": "high",

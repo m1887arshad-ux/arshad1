@@ -12,8 +12,8 @@ export function ActionCard({ action }: ActionCardProps) {
   const needsReview = action.status === "Pending";
 
   return (
-    <tr className="border-b border-gray-200 hover:bg-gray-50/50 transition-colors">
-      <td className="py-4 px-4 text-gray-900">
+    <tr className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+      <td className="py-4 px-4 text-gray-900 dark:text-gray-100">
         <div className="max-w-xs sm:max-w-none truncate sm:whitespace-normal">
           {action.action}
         </div>
@@ -28,7 +28,7 @@ export function ActionCard({ action }: ActionCardProps) {
           )}
         </div>
       </td>
-      <td className="py-4 px-4 text-gray-600 hidden sm:table-cell">{action.time}</td>
+      <td className="py-4 px-4 text-gray-600 dark:text-gray-400 hidden sm:table-cell">{action.time}</td>
     </tr>
   );
 }

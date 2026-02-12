@@ -61,18 +61,18 @@ export function OwnerShell({
         className={`
           ${isMobile ? "fixed inset-y-0 left-0 z-50" : "relative"}
           ${isMobile && !sidebarOpen ? "-translate-x-full" : "translate-x-0"}
-          w-56 bg-sidebar text-white flex flex-col shrink-0 transition-transform duration-200 ease-in-out
+          w-56 bg-sidebar dark:bg-sidebar-dark text-white flex flex-col shrink-0 transition-transform duration-200 ease-in-out
         `}
       >
-        <div className="p-4 flex items-center justify-between border-b border-white/10">
+        <div className="p-4 flex items-center justify-between border-b border-white/10 dark:border-gray-700">
           <div className="flex items-center gap-2">
             <LogoIcon />
-            <span className="font-semibold">Bharat Biz-Agent</span>
+            <span className="font-semibold text-white dark:text-gray-100">Bharat Biz-Agent</span>
           </div>
           {isMobile && (
             <button
               onClick={() => setSidebarOpen(false)}
-              className="text-white/80 hover:text-white p-1"
+              className="text-white/80 dark:text-gray-400 hover:text-white dark:hover:text-gray-200 p-1"
             >
               <CloseIcon />
             </button>
@@ -86,7 +86,7 @@ export function OwnerShell({
                 key={href}
                 href={href}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  active ? "bg-sidebar-active text-white" : "text-white/90 hover:bg-white/10"
+                  active ? "bg-sidebar-active dark:bg-sidebar-active-dark text-white dark:text-gray-100" : "text-white/90 dark:text-gray-300 hover:bg-white/10 dark:hover:bg-gray-700"
                 }`}
               >
                 <Icon />
@@ -97,10 +97,10 @@ export function OwnerShell({
         </nav>
         {/* Mobile logout at bottom of sidebar */}
         {isMobile && (
-          <div className="p-3 border-t border-white/10">
+          <div className="p-3 border-t border-white/10 dark:border-gray-700">
             <button
               onClick={handleLogout}
-              className="w-full text-left px-3 py-2.5 text-sm text-white/80 hover:text-white hover:bg-white/10 rounded-lg"
+              className="w-full text-left px-3 py-2.5 text-sm text-white/80 dark:text-gray-400 hover:text-white dark:hover:text-gray-200 hover:bg-white/10 dark:hover:bg-gray-700 rounded-lg"
             >
               Logout
             </button>
@@ -109,22 +109,22 @@ export function OwnerShell({
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 bg-gray-50 flex flex-col min-w-0">
-        <header className="bg-white border-b border-gray-200 px-4 md:px-6 py-4 flex items-center justify-between">
+      <main className="flex-1 bg-gray-50 dark:bg-gray-900 flex flex-col min-w-0 transition-colors duration-200">
+        <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 py-4 flex items-center justify-between transition-colors duration-200">
           <div className="flex items-center gap-3">
             {/* Mobile hamburger */}
             {isMobile && (
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="text-gray-600 hover:text-gray-900 p-1 -ml-1"
+                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 p-1 -ml-1"
               >
                 <HamburgerIcon />
               </button>
             )}
-            <h1 className="text-lg font-semibold text-gray-900 truncate">{title}</h1>
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">{title}</h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
-            <div className="hidden sm:flex items-center gap-2 text-gray-600">
+            <div className="hidden sm:flex items-center gap-2 text-gray-600 dark:text-gray-400">
               <UserIcon />
               <span className="text-sm font-medium">Owner: {ownerName}</span>
             </div>
@@ -132,14 +132,14 @@ export function OwnerShell({
               <button
                 type="button"
                 onClick={handleLogout}
-                className="text-sm text-gray-500 hover:text-gray-700"
+                className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
               >
                 Logout
               </button>
             )}
           </div>
         </header>
-        <div className="flex-1 p-4 md:p-6 overflow-auto">{children}</div>
+        <div className="flex-1 p-4 md:p-6 overflow-auto dark:bg-gray-900">{children}</div>
       </main>
     </div>
   );

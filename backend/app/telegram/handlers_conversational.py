@@ -99,15 +99,24 @@ def update_conversation_state(
     current_context: dict
 ) -> tuple:
     """
-    Update conversation state based on intent
+    Update conversation state based on intent.
+    
+    FSM STATES:
+    - IDLE: No active flow
+    - STOCK_CONFIRMED: Product locked after stock check, awaiting quantity
+    - AWAITING_CUSTOMER: Have product+qty, need customer name (optional)
+    - CONFIRMING: Ready to create invoice
+    - BROWSING: Non-blocking query flows
+    - ORDERING: Generic ordering (legacy)
+    
     Returns: (new_mode, new_context)
     """
     context = current_context.copy()
     
     # Handle reset (query interrupts order)
-    if should_reset and current_mode == ConversationMode.ORDERING:
-        logger.info(f"[STATE] Query '{intent}' interrupted order flow - resetting")
-        context = {}  # Clear order context
+    if should_reset and current_mode in [ConversationMode.ORDERING, ConversationMode.STOCK_CONFIRMED]:
+        logger.info(f"[STATE] Query '{intent}' interrupted flow - resetting")
+        context = {}
         current_mode = ConversationMode.BROWSING
     
     # Meta intents
@@ -115,41 +124,69 @@ def update_conversation_state(
         return (ConversationMode.IDLE, {})
     
     if intent == IntentType.HELP:
-        return (current_mode, context)  # Don't change mode
+        return (current_mode, context)
     
-    # Query intents → Browsing mode
-    if intent in [IntentType.ASK_STOCK, IntentType.ASK_SYMPTOM, IntentType.ASK_PRICE]:
-        # Save product in context if found (for quick ordering)
+    # === STOCK CONFIRMATION FLOW ===
+    if intent == IntentType.ASK_STOCK:
+        # Lock product in STOCK_CONFIRMED state
         if entities.get("product"):
-            context["last_query_product"] = entities["product"]
+            context["product"] = entities["product"]  # ← LOCK PRODUCT
+            logger.info(f"[FSM] Product locked in STOCK_CONFIRMED: {entities['product']}")
+            return (ConversationMode.STOCK_CONFIRMED, context)
+        # No product found - stay in BROWSING
+        context["last_query_product"] = entities.get("product")
         return (ConversationMode.BROWSING, context)
     
-    # Transaction intents
-    if intent == IntentType.START_ORDER:
-        context.update(entities)
-        # If we have product + quantity, skip to confirming
-        if context.get("product") and context.get("quantity"):
-            return (ConversationMode.CONFIRMING, context)
-        return (ConversationMode.ORDERING, context)
-    
+    # === QUANTITY AFTER STOCK CONFIRMATION ===
     if intent == IntentType.PROVIDE_QUANTITY:
         context["quantity"] = entities["quantity"]
-        # Use last query product if no product specified
-        if not context.get("product") and context.get("last_query_product"):
-            context["product"] = context["last_query_product"]
-        # Move to confirming if we have product + quantity
-        if context.get("product") and context.get("quantity"):
-            return (ConversationMode.CONFIRMING, context)
-        return (ConversationMode.ORDERING, context)
+        
+        # If in STOCK_CONFIRMED, product is already locked
+        if current_mode == ConversationMode.STOCK_CONFIRMED:
+            logger.info(f"[FSM] Got quantity in STOCK_CONFIRMED → AWAITING_CUSTOMER")
+            return (ConversationMode.AWAITING_CUSTOMER, context)
+        
+        # If in ORDERING, use last_query_product if product not set
+        if current_mode == ConversationMode.ORDERING:
+            if not context.get("product") and context.get("last_query_product"):
+                context["product"] = context["last_query_product"]
+            if context.get("product"):
+                return (ConversationMode.AWAITING_CUSTOMER, context)
+            return (ConversationMode.ORDERING, context)
+        
+        # Other modes with quantity → move to AWAITING_CUSTOMER if product exists
+        if context.get("product"):
+            return (ConversationMode.AWAITING_CUSTOMER, context)
+        return (current_mode, context)
     
+    # === CUSTOMER NAME ===
     if intent == IntentType.PROVIDE_CUSTOMER:
         context["customer"] = entities["customer"]
-        return (ConversationMode.CONFIRMING, context)
+        # If we have product + quantity, move to CONFIRMING
+        if context.get("product") and context.get("quantity"):
+            return (ConversationMode.CONFIRMING, context)
+        return (current_mode, context)
     
+    # === CONFIRMATION ===
     if intent == IntentType.CONFIRM_ORDER:
         if context.get("product") and context.get("quantity"):
             return (ConversationMode.CONFIRMING, context)
         return (current_mode, context)
+    
+    # === GENERAL ORDER START ===
+    if intent == IntentType.START_ORDER:
+        context.update(entities)
+        if context.get("product") and context.get("quantity"):
+            return (ConversationMode.AWAITING_CUSTOMER, context)
+        if context.get("product"):
+            return (ConversationMode.ORDERING, context)
+        return (ConversationMode.ORDERING, context)
+    
+    # === OTHER QUERIES ===
+    if intent in [IntentType.ASK_SYMPTOM, IntentType.ASK_PRICE]:
+        if entities.get("product"):
+            context["last_query_product"] = entities["product"]
+        return (ConversationMode.BROWSING, context)
     
     return (current_mode, context)
 
@@ -159,9 +196,12 @@ def update_conversation_state(
 # ============================================================================
 
 async def handle_query_response(
-    update, db, business_id: int, intent: str, entities: dict, context: dict
+    update, db, business_id: int, intent: str, entities: dict, context: dict, current_mode: str = None
 ):
-    """Handle query intents (non-blocking)"""
+    """Handle query intents (non-blocking)
+    
+    STOCK_CONFIRMED state: Product has been verified, lock it until user confirms quantity.
+    """
     
     if intent == IntentType.ASK_STOCK:
         product = entities.get("product")
@@ -184,7 +224,8 @@ async def handle_query_response(
                 f"💰 Price: ₹{item.price}\n\n"
             )
             if qty > 0:
-                msg += "📝 Order karna hai? Quantity batao (e.g., '10')"
+                # *** FIX: Explicitly tell user to provide quantity ***
+                msg += "🔢 Kitni quantity chahiye? (e.g., '10', 'ek', 'twenty')"
             await update.message.reply_text(msg)
         else:
             # Try symptom search
@@ -244,8 +285,38 @@ async def show_symptom_results(update, symptom: str, results: list):
 async def handle_transaction_response(
     update, db, business_id: int, chat_id: int, mode: str, context: dict
 ):
-    """Handle transaction flow responses"""
+    """Handle transaction flow responses
     
+    States:
+    - STOCK_CONFIRMED: Product locked, awaiting quantity
+    - AWAITING_CUSTOMER: Have product+qty, need optional customer name
+    - CONFIRMING: Ready to create invoice
+    """
+    
+    # === STOCK_CONFIRMED: Product verified, await quantity ===
+    if mode == ConversationMode.STOCK_CONFIRMED:
+        product = context.get("product")
+        await update.message.reply_text(
+            f"🔢 {product} ki kitni quantity chahiye?\n"
+            "Example: '10', 'ek dozen', 'twenty'"
+        )
+        return
+    
+    # === AWAITING_CUSTOMER: Have product+qty, need optional customer name ===
+    if mode == ConversationMode.AWAITING_CUSTOMER:
+        product = context.get("product")
+        quantity = context.get("quantity")
+        
+        # Show summary and ask for customer
+        await update.message.reply_text(
+            f"📋 Order Details:\n"
+            f"📦 {product} × {int(quantity)}\n\n"
+            f"💬 Customer name? (or 'confirm' for walk-in)\n"
+            f"Example: 'Rahul' or 'confirm'"
+        )
+        return
+    
+    # === ORDERING: Generic ordering state (legacy) ===
     if mode == ConversationMode.ORDERING:
         if not context.get("product"):
             await update.message.reply_text(
@@ -261,6 +332,7 @@ async def handle_transaction_response(
             )
             return
     
+    # === CONFIRMING: Ready to execute ===
     if mode == ConversationMode.CONFIRMING:
         product = context.get("product")
         quantity = context.get("quantity")
@@ -295,7 +367,7 @@ async def handle_transaction_response(
             f"━━━━━━━━━━━━━━━━━━\n\n"
             f"✅ 'confirm' - Order banao\n"
             f"❌ 'cancel' - Band karo\n"
-            f"✏️ Customer name add/change karna hai to batao"
+            f"✏️ Customer name change: 'Rahul' (example)"
         )
         return
 
@@ -425,15 +497,26 @@ async def handle_message_conversational(update: Update, context: ContextTypes.DE
         # Save new state
         save_conversation_data(db, chat_id, new_mode, new_context)
         
-        # Route response
+        # === ROUTE RESPONSE BASED ON STATE & INTENT ===
+        
+        # Query intents (non-blocking)
         if intent in [IntentType.ASK_STOCK, IntentType.ASK_SYMPTOM, IntentType.ASK_PRICE, IntentType.HELP]:
-            await handle_query_response(update, db, business.id, intent, entities, new_context)
+            await handle_query_response(update, db, business.id, intent, entities, new_context, new_mode)
+        
+        # Cancellation
         elif intent == IntentType.CANCEL:
             await update.message.reply_text("✅ Order cancelled. Kya chahiye?")
+        
+        # Confirmation at CONFIRMING state
         elif intent == IntentType.CONFIRM_ORDER and new_mode == ConversationMode.CONFIRMING:
             await execute_order(update, db, business.id, chat_id, new_context)
-        elif new_mode in [ConversationMode.ORDERING, ConversationMode.CONFIRMING]:
+        
+        # Transaction states (STOCK_CONFIRMED, AWAITING_CUSTOMER, ORDERING, CONFIRMING)
+        elif new_mode in [ConversationMode.STOCK_CONFIRMED, ConversationMode.AWAITING_CUSTOMER, 
+                          ConversationMode.ORDERING, ConversationMode.CONFIRMING]:
             await handle_transaction_response(update, db, business.id, chat_id, new_mode, new_context)
+        
+        # Fallback
         else:
             await update.message.reply_text(
                 "🤔 Samajh nahi aaya\n\n"

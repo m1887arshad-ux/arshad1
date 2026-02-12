@@ -3,18 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
-import { getCurrentOwner, getSettings, updateSettings, type OwnerSettings } from "@/lib/api";
+import { getCurrentUser, getCurrentOwner, getSettings, updateSettings, type OwnerSettings } from "@/lib/api";
 import { useTheme } from "../theme-provider";
 
 const LANGUAGES = ["Hindi", "English", "Hinglish", "Marathi", "Tamil", "Gujarati"];
 
-function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("bharat_owner_token");
-}
-
 export default function SettingsPage() {
   const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [ownerName, setOwnerName] = useState("Owner");
   const [settings, setSettings] = useState<OwnerSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,14 +19,22 @@ export default function SettingsPage() {
 
   // Check auth before rendering
   useEffect(() => {
-    if (!getStoredToken()) {
-      router.replace("/login");
+    async function checkAuth() {
+      try {
+        await getCurrentUser();
+        // Auth successful
+        setCheckingAuth(false);
+      } catch (err) {
+        // Not logged in
+        router.replace("/login");
+      }
     }
-  }, [router]);
+    checkAuth();
+  }, []);
 
   useEffect(() => {
     async function load() {
-      if (!getStoredToken()) return; // Wait for auth check
+      if (checkingAuth) return; // Wait for auth check
       try {
         const [owner, s] = await Promise.all([getCurrentOwner(), getSettings()]);
         setOwnerName(owner.name);
@@ -43,7 +47,7 @@ export default function SettingsPage() {
       }
     }
     load();
-  }, []);
+  }, [checkingAuth]);
 
   async function toggle(key: keyof OwnerSettings, value: boolean) {
     if (!settings) return;
@@ -87,6 +91,12 @@ export default function SettingsPage() {
 
   return (
     <OwnerShell title="Control Settings" ownerName={ownerName}>
+      {checkingAuth ? (
+        <div className="flex items-center justify-center p-12">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      ) : (
+      <>
       {/* Toast notification */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
@@ -188,6 +198,8 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+      </>
+      )}
     </OwnerShell>
   );
 }

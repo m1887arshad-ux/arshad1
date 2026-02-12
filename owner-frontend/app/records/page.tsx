@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import { Table } from "@/components/Table";
 import { 
+  getCurrentUser,
   getCurrentOwner, 
   getInvoices, 
   getLedgerEntries, 
@@ -24,13 +25,9 @@ type LedgerRow = any;
 type InventoryRow = any;
 type InventoryCreateData = InventoryItemCreate;
 
-function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("bharat_owner_token");
-}
-
 export default function RecordsPage() {
   const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [ownerName, setOwnerName] = useState("Owner");
   const [tab, setTab] = useState<TabId>("invoices");
   const [search, setSearch] = useState("");
@@ -54,10 +51,18 @@ export default function RecordsPage() {
 
   // Check auth before rendering
   useEffect(() => {
-    if (!getStoredToken()) {
-      router.replace("/login");
+    async function checkAuth() {
+      try {
+        await getCurrentUser();
+        // Auth successful
+        setCheckingAuth(false);
+      } catch (err) {
+        // Not logged in
+        router.replace("/login");
+      }
     }
-  }, [router]);
+    checkAuth();
+  }, []);
 
   // Handle Escape key to close modal
   useEffect(() => {
@@ -75,7 +80,7 @@ export default function RecordsPage() {
 
   useEffect(() => {
     async function loadOwner() {
-      if (!getStoredToken()) return; // Wait for auth check
+      if (checkingAuth) return; // Wait for auth check
       
       try {
         const owner = await getCurrentOwner();
@@ -88,16 +93,16 @@ export default function RecordsPage() {
   }, []);
 
   const loadInventory = useCallback(async () => {
-    const data = await getInventoryItems(search);
+    const data = await getInventoryItems();
     setInventory(data);
-  }, [search]);
+  }, []);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
         if (tab === "invoices") {
-          const data = await getInvoices(search);
+          const data = await getInvoices();
           setInvoices(data);
         } else if (tab === "ledger") {
           const data = await getLedgerEntries();
@@ -211,6 +216,11 @@ export default function RecordsPage() {
 
   return (
     <OwnerShell title="Records & Ledger" ownerName={ownerName}>
+      {checkingAuth ? (
+        <div className="flex items-center justify-center p-12">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      ) : (
       <div className="space-y-6">
         <h2 className="text-2xl font-bold text-gray-900">Records & Ledger</h2>
 
@@ -413,6 +423,7 @@ export default function RecordsPage() {
           )
         )}
       </div>
+      )}
 
       {/* Add/Edit Modal */}
       {showModal && (
@@ -491,18 +502,6 @@ export default function RecordsPage() {
                     onChange={(e) => setFormData({ ...formData, disease: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="e.g., Fever, Pain, Headache"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Expiry Date
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.expiry_date || ""}
-                    onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
 

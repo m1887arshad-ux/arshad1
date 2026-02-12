@@ -10,7 +10,43 @@
 }
 
 body {
-  @apply bg-white text-gray-900 antialiased;
+  @apply bg-white text-gray-900 antialiased transition-colors duration-200;
+}
+
+/* Dark mode styles with high contrast */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+}
+
+html.dark body {
+  @apply bg-gray-950 text-gray-50;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* High contrast text for dark mode */
+html.dark h1 {
+  @apply text-gray-100;
+}
+
+html.dark h2 {
+  @apply text-gray-100;
+}
+
+html.dark h3 {
+  @apply text-gray-100;
+}
+
+html.dark p {
+  @apply text-gray-300;
+}
+
+html.dark a {
+  @apply text-blue-400 hover:text-blue-300;
 }
 
 /* Calm spacing: generous padding for trust-first layout */

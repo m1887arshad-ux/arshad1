@@ -6,21 +6,18 @@ import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import { ActionCard } from "@/components/ActionCard";
 import { 
+  getCurrentUser,
   getCurrentOwner, 
   getRecentActions, 
   getLowStockItems,
   getExpiringItems,
+  APIError,
   type AgentAction,
   type LowStockItem,
   type ExpiringItem
 } from "@/lib/api";
 
 const POLL_INTERVAL = 10000; // 10 seconds
-
-function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("bharat_owner_token");
-}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -32,13 +29,22 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isPolling, setIsPolling] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  // Check auth before rendering
+  // Check auth before rendering (via httpOnly cookie)
   useEffect(() => {
-    if (!getStoredToken()) {
-      router.replace("/login");
+    async function checkAuth() {
+      try {
+        await getCurrentUser();
+        // Auth successful, user logged in
+        setCheckingAuth(false);
+      } catch (err) {
+        // Not logged in, redirect
+        router.replace("/login");
+      }
     }
-  }, [router]);
+    checkAuth();
+  }, []);
 
   // Fetch function for polling
   const fetchData = useCallback(async (showLoading = false) => {
@@ -76,7 +82,7 @@ export default function DashboardPage() {
   // Initial load
   useEffect(() => {
     async function load() {
-      if (!getStoredToken()) return; // Wait for auth check
+      if (checkingAuth) return; // Wait for auth check
       
       try {
         const owner = await getCurrentOwner();
@@ -97,7 +103,7 @@ export default function DashboardPage() {
       }
     }
     load();
-  }, [fetchData]);
+  }, [checkingAuth, fetchData]);
 
   // Polling effect
   useEffect(() => {
@@ -111,6 +117,16 @@ export default function DashboardPage() {
   }, [isPolling, fetchData]);
 
   const pendingCount = actions.filter((a) => a.status === "Pending").length;
+
+  if (checkingAuth) {
+    return (
+      <OwnerShell title="Home" ownerName={ownerName}>
+        <div className="flex items-center justify-center p-12">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </OwnerShell>
+    );
+  }
 
   return (
     <OwnerShell title="Home" ownerName={ownerName}>

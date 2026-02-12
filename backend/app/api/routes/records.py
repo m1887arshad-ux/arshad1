@@ -10,6 +10,7 @@ from app.api.deps import get_db, get_current_user
 from app.models.user import User
 from app.models.business import Business
 from app.models.invoice import Invoice
+from app.services.invoice_service import create_invoice_for_customer
 from app.models.ledger import Ledger
 from app.models.inventory import Inventory
 from app.models.customer import Customer
@@ -21,6 +22,12 @@ class InventoryCreate(BaseModel):
     price: float = 0
     disease: str = ""
     requires_prescription: bool = False
+
+
+class InvoiceCreate(BaseModel):
+    customer_name: str
+    amount: float
+    phone: str | None = None
 
 
 router = APIRouter()
@@ -95,6 +102,35 @@ def list_invoices(
         }
         for inv, c in rows
     ]
+
+
+@router.post("/invoices", response_model=dict)
+def generate_invoice(
+    data: InvoiceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a new invoice for a customer and add ledger entry."""
+    business = _get_business(db, current_user)
+    if not data.customer_name.strip():
+        raise HTTPException(status_code=400, detail="Customer name is required")
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+
+    inv = create_invoice_for_customer(
+        db,
+        business_id=business.id,
+        customer_name=data.customer_name,
+        amount=data.amount,
+        auto_commit=True,
+    )
+    return {
+        "id": inv.id,
+        "customer_name": data.customer_name,
+        "amount": f"₹ {inv.amount:,.2f}",
+        "status": inv.status,
+        "created_at": inv.created_at.isoformat() if inv.created_at else None,
+    }
 
 
 @router.get("/ledger", response_model=list)

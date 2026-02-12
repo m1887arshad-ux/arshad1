@@ -10,9 +10,11 @@ Replaces rigid FSM with layered intent architecture:
 class ConversationMode:
     """Bot conversation modes"""
     IDLE = "idle"
-    BROWSING = "browsing"
-    ORDERING = "ordering"
+    STOCK_CONFIRMED = "stock_confirmed"  # ← NEW: Product locked, awaiting quantity
+    AWAITING_CUSTOMER = "awaiting_customer"  # ← NEW: Have product+qty, need customer name
     CONFIRMING = "confirming"
+    BROWSING = "browsing"  # Non-blocking queries
+    ORDERING = "ordering"  # Generic ordering mode (legacy fallback)
 
 
 class IntentType:

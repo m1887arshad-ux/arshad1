@@ -5,12 +5,12 @@ import Link from "next/link";
 type ButtonVariant = "primary" | "secondary" | "approve" | "reject" | "ghost" | "warning";
 
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: "bg-primary text-white hover:bg-primary-dark",
-  secondary: "bg-gray-200 text-gray-800 hover:bg-gray-300",
-  approve: "bg-approved text-white hover:bg-green-700",
-  reject: "bg-rejected text-white hover:bg-red-700",
-  ghost: "bg-transparent text-primary hover:bg-blue-50 border border-primary",
-  warning: "bg-pending text-white hover:bg-orange-700",
+  primary: "bg-primary dark:bg-blue-500 text-white dark:text-white hover:bg-primary-dark dark:hover:bg-blue-600 transition-colors",
+  secondary: "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors",
+  approve: "bg-approved dark:bg-green-600 text-white dark:text-white hover:bg-green-700 dark:hover:bg-green-700 transition-colors",
+  reject: "bg-rejected dark:bg-red-600 text-white dark:text-white hover:bg-red-700 dark:hover:bg-red-700 transition-colors",
+  ghost: "bg-transparent dark:bg-transparent text-primary dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-800 border border-primary dark:border-blue-400 transition-colors",
+  warning: "bg-pending dark:bg-orange-600 text-white dark:text-white hover:bg-orange-700 dark:hover:bg-orange-700 transition-colors",
 };
 
 interface PrimaryButtonProps {

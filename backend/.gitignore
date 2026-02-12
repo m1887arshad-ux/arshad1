@@ -1,0 +1,73 @@
+# ===== ENVIRONMENT & SECRETS =====
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets.json
+config.local.py
+
+# ===== DATABASE =====
+*.db
+*.sqlite
+*.sqlite3
+bharat.db
+
+# ===== PYTHON =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.venv/
+venv/
+ENV/
+env/
+.venv*/
+
+# ===== IDE =====
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+# ===== LOGS =====
+*.log
+audit.log
+error.log
+logs/
+
+# ===== TESTING =====
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ===== TEMP FILES =====
+*.tmp
+*.bak
+*.backup
+*~
+.tmp/

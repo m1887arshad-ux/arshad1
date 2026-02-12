@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes import auth, business, agent, records
 from app.api.routes import settings as settings_routes
@@ -56,13 +57,49 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# SECURITY: Trust only specific hosts
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=[
+        "localhost",
+        "127.0.0.1",
+        "localhost:3000",
+        "127.0.0.1:3000",
+        "localhost:3001",
+        "127.0.0.1:3001"
+    ]
+)
+
+# SECURITY: Restrict CORS to specific methods and headers (not wildcards)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicit methods only
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+    ],  # Explicit headers only
+    max_age=600,  # Cache preflight for 10 minutes
+    expose_headers=["Content-Type"],
 )
+
+# SECURITY: Add security headers middleware
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"  # Prevent MIME sniffing
+    response.headers["X-Frame-Options"] = "DENY"  # Prevent clickjacking
+    response.headers["X-XSS-Protection"] = "1; mode=block"  # XSS filter
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"  # HSTS
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; connect-src 'self';"
+    )
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(business.router, prefix="/business", tags=["business"])
