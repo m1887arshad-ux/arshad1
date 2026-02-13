@@ -37,6 +37,7 @@ from app.models.inventory import Inventory
 from app.models.conversation_state import ConversationState
 from app.agent.decision_engine import validate_and_create_draft
 from app.agent.intent_parser import parse_message
+from app.telegram.utils import get_business_by_telegram_id
 from ai.intent_parser import parse_message_with_ai
 from app.services.symptom_mapper import map_symptom_to_medicines
 
@@ -472,13 +473,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     db = SessionLocal()
     try:
-        # Find business linked to this Telegram chat
-        business = db.query(Business).filter(Business.telegram_chat_id == str(chat_id)).first()
-        if not business:
-            business = db.query(Business).first()
+        # Resolve business using deterministic helper with fallback
+        business = get_business_by_telegram_id(db, chat_id)
+        
         if not business:
             await update.message.reply_text(
-                "No business linked. Please link Telegram from Owner Dashboard."
+                "❌ No business found\n\n"
+                "Please complete business setup in the Owner Dashboard first.\n\n"
+                f"💡 Your Chat ID: {chat_id}\n"
+                "You can add this to your dashboard to enable explicit linking."
+            )
+            logger.error(
+                f"[Incoming] Rejected: No business found for chat_id={chat_id}"
             )
             return
         
@@ -506,10 +512,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 quantity = data["quantity"]
                 
                 # PHARMACY COMPLIANCE: Check if product requires prescription
+                # CRITICAL: Use .order_by(Inventory.id) for deterministic product lookup
                 item = db.query(Inventory).filter(
                     Inventory.business_id == business.id,
                     Inventory.item_name.ilike(f"%{product}%")
-                ).first()
+                ).order_by(Inventory.id).first()  # FIX: DETERMINISTIC ORDER
+                
+                if not item:
+                    # Try exact match
+                    item = db.query(Inventory).filter(
+                        Inventory.business_id == business.id,
+                        Inventory.item_name == product
+                    ).first()
                 
                 requires_rx = item.requires_prescription if item else False
                 
@@ -522,6 +536,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     telegram_chat_id=str(chat_id),
                     intent="create_invoice",
                     product=product,
+                    product_id=item.id if item else None,  # FIX: PASS PRODUCT_ID
                     quantity=quantity,
                     customer=customer,
                     requires_prescription=requires_rx,

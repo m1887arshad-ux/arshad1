@@ -38,6 +38,7 @@ from app.models.inventory import Inventory
 from app.models.conversation_state import ConversationState as DBConversationState
 from app.agent.decision_engine import validate_and_create_draft
 from app.services.product_resolver import resolve_product, resolve_multiple_products
+from app.telegram.utils import get_business_by_telegram_id
 from app.services.entity_extractor import (
     extract_all_entities, 
     should_skip_question
@@ -118,6 +119,20 @@ def save_conversation_context(db, chat_id: int, context: dict):
     
     # Clean context for JSON storage
     clean_context = convert_decimals(context)
+    
+    # CRITICAL: Validate product_id is preserved
+    product_entity = clean_context.get("entities", {}).get("product")
+    if product_entity and isinstance(product_entity, dict):
+        if "product_id" not in product_entity or product_entity["product_id"] is None:
+            logger.error(
+                f"[SaveContext] CRITICAL: product_id missing from product entity! "
+                f"Product: {product_entity.get('canonical_name', 'Unknown')}"
+            )
+        else:
+            logger.info(
+                f"[SaveContext] Saving product_id={product_entity['product_id']} "
+                f"({product_entity.get('canonical_name', 'Unknown')})"
+            )
     
     record = db.query(DBConversationState).filter(
         DBConversationState.chat_id == str(chat_id)
@@ -383,9 +398,24 @@ async def handle_order_flow(update, db, business_id: int, chat_id: int, text: st
         resolved = resolve_product(db, business_id, extracted["product"]["value"], min_confidence=0.7)
         
         if resolved:
+            # CRITICAL: Validate product_id is present
+            if "product_id" not in resolved or resolved["product_id"] is None:
+                logger.error(
+                    f"[ProductResolved] CRITICAL: resolve_product returned no product_id! "
+                    f"Input: '{extracted['product']['value']}', Result: {resolved}"
+                )
+                await update.message.reply_text(
+                    f"❌ System error resolving '{extracted['product']['value']}'. Please try again."
+                )
+                reset_conversation(db, chat_id)
+                return
+            
             entities["product"] = resolved
             confidence["product"] = resolved["confidence"]
-            logger.info(f"[ProductResolved] '{extracted['product']['value']}' → '{resolved['canonical_name']}'")
+            logger.info(
+                f"[ProductResolved] '{extracted['product']['value']}' → "
+                f"'{resolved['canonical_name']}' (product_id={resolved['product_id']})"
+            )
         else:
             # Product not found in inventory
             await update.message.reply_text(
@@ -492,31 +522,76 @@ async def handle_order_confirm(update, db, business_id: int, chat_id: int):
         reset_conversation(db, chat_id)
         return
     
-    # Create draft with deterministic pricing
-    unit_price = float(product["price_per_unit"])
+    # CRITICAL: Validate product_id exists
+    product_id = product.get("product_id") if isinstance(product, dict) else None
+    canonical_name = product.get("canonical_name") if isinstance(product, dict) else str(product)
+    
+    if not product_id:
+        logger.error(
+            f"[OrderConfirm] CRITICAL: product_id is missing! "
+            f"Product entity: {product}"
+        )
+        # Attempt recovery: re-resolve product from canonical name
+        from app.services.product_resolver import resolve_product
+        resolved = resolve_product(db, business_id, canonical_name, min_confidence=0.5)
+        if resolved:
+            product_id = resolved["product_id"]
+            canonical_name = resolved["canonical_name"]
+            logger.info(f"[OrderConfirm] Recovered product_id={product_id} ({canonical_name})")
+        else:
+            await update.message.reply_text(
+                f"❌ Product '{canonical_name}' not found in inventory. Please start again."
+            )
+            reset_conversation(db, chat_id)
+            return
+    
+    # Get price from database to ensure it's current
+    from app.models.inventory import Inventory
+    item = db.query(Inventory).filter(
+        Inventory.id == product_id,
+        Inventory.business_id == business_id
+    ).first()
+    
+    if not item:
+        logger.error(
+            f"[OrderConfirm] CRITICAL: product_id={product_id} not found in database!"
+        )
+        await update.message.reply_text("❌ Product no longer exists. Please start again.")
+        reset_conversation(db, chat_id)
+        return
+    
+    # Use database values (source of truth)
+    unit_price = float(item.price)
     total_amount = unit_price * quantity
+    final_product_name = item.item_name  # Always use DB name
+    
+    logger.info(
+        f"[OrderConfirm] Creating draft: product_id={product_id}, "
+        f"name='{final_product_name}', qty={quantity}, amount={total_amount:.2f}"
+    )
     
     draft = validate_and_create_draft(
         db,
         business_id,
-        raw_message=f"{customer} wants {int(quantity)} {product['canonical_name']}",
+        raw_message=f"{customer} wants {int(quantity)} {final_product_name}",
         telegram_chat_id=str(chat_id),
         intent="create_invoice",
-        product=product["canonical_name"],  # CANONICAL name, not raw input
+        product=final_product_name,         # ALWAYS use DB name
+        product_id=product_id,              # CRITICAL: Pass resolved ID
         quantity=quantity,
         customer=customer,
-        requires_prescription=product["requires_prescription"]
+        requires_prescription=item.requires_prescription
     )
     
     if draft:
         rx_note = ""
-        if product["requires_prescription"]:
+        if item.requires_prescription:
             rx_note = "\n⚠️ Prescription verification required before approval"
         
         await update.message.reply_text(
             f"✅ Invoice draft created!{rx_note}\n\n"
             f"👤 Customer: {customer}\n"
-            f"📦 Product: {product['canonical_name']}\n"
+            f"📦 Product: {final_product_name}\n"
             f"🔢 Quantity: {int(quantity)}\n"
             f"💰 Amount: ₹{total_amount:.2f}\n\n"
             f"📱 Approve from Owner Dashboard to finalize"
@@ -557,18 +632,18 @@ async def handle_message_refactored(update: Update, context: ContextTypes.DEFAUL
     
     db = SessionLocal()
     try:
-        # Find business
-        business = db.query(Business).filter(
-            Business.telegram_chat_id == str(chat_id)
-        ).first()
-        
-        if not business:
-            business = db.query(Business).first()
+        # Resolve business using deterministic helper with fallback
+        business = get_business_by_telegram_id(db, chat_id)
         
         if not business:
             await update.message.reply_text(
-                "❌ No business linked\n"
-                "Link Telegram from Owner Dashboard"
+                "❌ No business found\n\n"
+                "Please complete business setup in the Owner Dashboard first.\n\n"
+                f"💡 Your Chat ID: {chat_id}\n"
+                "You can add this to your dashboard to enable explicit linking."
+            )
+            logger.error(
+                f"[Message] Rejected: No business found for chat_id={chat_id}"
             )
             return
         

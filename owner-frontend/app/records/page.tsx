@@ -49,6 +49,9 @@ export default function RecordsPage() {
   });
   const [formError, setFormError] = useState("");
   const [formLoading, setFormLoading] = useState(false);
+  const [exportingInvoices, setExportingInvoices] = useState(false);
+  const [exportingInventory, setExportingInventory] = useState(false);
+  const [exportToast, setExportToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Check auth before rendering
   useEffect(() => {
@@ -199,19 +202,33 @@ export default function RecordsPage() {
 
   // Export invoices CSV
   const handleExportInvoices = async () => {
+    setExportingInvoices(true);
     try {
       await exportInvoicesCSV();
+      setExportToast({ type: "success", message: "Invoices exported successfully ✅" });
+      setTimeout(() => setExportToast(null), 3000);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to export invoices");
+      const msg = err instanceof Error ? err.message : "Failed to export invoices";
+      setExportToast({ type: "error", message: msg });
+      setTimeout(() => setExportToast(null), 4000);
+    } finally {
+      setExportingInvoices(false);
     }
   };
 
   // Export inventory CSV
   const handleExportInventory = async () => {
+    setExportingInventory(true);
     try {
       await exportInventoryCSV();
+      setExportToast({ type: "success", message: "Inventory exported successfully ✅" });
+      setTimeout(() => setExportToast(null), 3000);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to export inventory");
+      const msg = err instanceof Error ? err.message : "Failed to export inventory";
+      setExportToast({ type: "error", message: msg });
+      setTimeout(() => setExportToast(null), 4000);
+    } finally {
+      setExportingInventory(false);
     }
   };
 
@@ -223,6 +240,15 @@ export default function RecordsPage() {
         </div>
       ) : (
       <div className="space-y-6">
+        {/* Export Toast Notification */}
+        {exportToast && (
+          <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-opacity ${
+            exportToast.type === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+          }`}>
+            {exportToast.message}
+          </div>
+        )}
+        
         <h2 className="text-2xl font-bold text-gray-900">Records & Ledger</h2>
 
         <div className="flex border-b border-gray-200 gap-4 md:gap-6 overflow-x-auto">
@@ -256,10 +282,20 @@ export default function RecordsPage() {
             </div>
             <button
               onClick={handleExportInvoices}
-              className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+              disabled={exportingInvoices}
+              className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
-              <DownloadIcon className="w-5 h-5" />
-              Export CSV
+              {exportingInvoices ? (
+                <>
+                  <SpinnerIcon className="w-5 h-5 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <DownloadIcon className="w-5 h-5" />
+                  Export CSV
+                </>
+              )}
             </button>
           </div>
         )}
@@ -278,10 +314,20 @@ export default function RecordsPage() {
             </div>
             <button
               onClick={handleExportInventory}
-              className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+              disabled={exportingInventory}
+              className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
-              <DownloadIcon className="w-5 h-5" />
-              Export CSV
+              {exportingInventory ? (
+                <>
+                  <SpinnerIcon className="w-5 h-5 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <DownloadIcon className="w-5 h-5" />
+                  Export CSV
+                </>
+              )}
             </button>
             <button
               onClick={handleAddNew}
@@ -600,3 +646,13 @@ function DownloadIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+function SpinnerIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+  );
+}
+

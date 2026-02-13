@@ -46,6 +46,7 @@ def validate_and_create_draft(
     telegram_chat_id: str | None = None,
     intent: str = None,
     product: str = None,
+    product_id: int = None,  # FIX 7: NEW PARAMETER - Accept product_id from FSM
     quantity: float = None,
     customer: str = None,
     requires_prescription: bool = False,
@@ -69,34 +70,82 @@ def validate_and_create_draft(
         telegram_chat_id: Telegram chat ID for linking
         intent: Explicit intent (e.g., "create_invoice")
         product: Product name
+        product_id: Product ID (PREFERRED - ensures exact match)
         quantity: Product quantity
         customer: Customer name
         requires_prescription: If True, product needs prescription verification
     """
     
     # If explicit parameters provided (from FSM), use them directly
-    if intent == "create_invoice" and product and quantity and customer:
-        # CRITICAL: Product must be canonical name from inventory
-        # Look up product to get exact price
-        item = db.query(Inventory).filter(
-            Inventory.business_id == business_id,
-            Inventory.item_name == product  # Exact match (already canonical)
-        ).first()
+    if intent == "create_invoice" and (product or product_id) and quantity and customer:
+        item = None
         
-        if not item:
-            # Fallback: try fuzzy match
+        # FIX: ID takes absolute precedence (strongest source of truth)
+        if product_id:
             item = db.query(Inventory).filter(
                 Inventory.business_id == business_id,
-                Inventory.item_name.ilike(f"%{product}%")
+                Inventory.id == product_id
             ).first()
+            logger.info(f"[DecisionEngine] Lookup by product_id={product_id}, found={item.item_name if item else 'None'}")
+            
+            # CRITICAL: If product_id was provided but not found, FAIL HARD
+            if not item:
+                logger.error(
+                    f"[DecisionEngine] CRITICAL: product_id={product_id} not found in inventory "
+                    f"for business_id={business_id}. This indicates FSM state corruption or deleted product."
+                )
+                return None
+            
+            # SANITY CHECK: Verify the returned product matches expectations
+            if product and item.item_name.lower().strip() != product.lower().strip():
+                logger.warning(
+                    f"[DecisionEngine] WARNING: product_id={product_id} resolved to '{item.item_name}' "
+                    f"but expected '{product}'. Using database value: {item.item_name}"
+                )
+        
+        # FIX: Name-based lookup only if ID not provided
+        elif product:
+            # Priority 1: Exact match
+            item = db.query(Inventory).filter(
+                Inventory.business_id == business_id,
+                Inventory.item_name == product
+            ).first()
+            
+            # Priority 2: Case-insensitive exact match
+            if not item:
+                item = db.query(Inventory).filter(
+                    Inventory.business_id == business_id,
+                    Inventory.item_name.ilike(product)
+                ).order_by(Inventory.id).first()
+            
+            # Priority 3: Fuzzy match (with deterministic sort)
+            if not item:
+                item = db.query(Inventory).filter(
+                    Inventory.business_id == business_id,
+                    Inventory.item_name.ilike(f"%{product}%")
+                ).order_by(Inventory.id).first()
+                
+                if item:
+                    logger.warning(f"[DecisionEngine] Fuzzy match: '{product}' -> '{item.item_name}' (id={item.id})")
+        
+        else:
+            logger.error(f"[DecisionEngine] Neither product_id nor product name provided")
+            return None
         
         if not item:
-            logger.error(f"[DecisionEngine] Product '{product}' not found in inventory for business {business_id}")
+            logger.error(f"[DecisionEngine] Product lookup failed. ID={product_id}, Name='{product}'")
             return None
         
         # DETERMINISTIC BILLING: price_per_unit × quantity (NO MAGIC NUMBERS)
         unit_price = float(item.price)
         amount = quantity * unit_price
+        
+        # FINAL SANITY CHECK: Log what we're billing
+        logger.info(
+            f"[DecisionEngine] FINAL: Creating draft for product_id={item.id}, "
+            f"name='{item.item_name}', qty={quantity}, unit_price={unit_price}, "
+            f"total={amount:.2f}"
+        )
         
         # PHARMACY COMPLIANCE: Flag prescription requirement
         rx_warning = ""

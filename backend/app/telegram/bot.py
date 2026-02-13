@@ -10,6 +10,7 @@ from telegram.ext import Application, MessageHandler, CommandHandler, filters
 
 from app.core.config import settings
 from app.telegram.handlers_refactored import handle_message_refactored as handle_message, handle_start
+from app.telegram.handlers_photo import handle_photo_message
 
 _bot_app: Optional[Application] = None
 
@@ -26,6 +27,11 @@ def _run_bot():
         
         # Add command handler for /start
         _bot_app.add_handler(CommandHandler("start", handle_start))
+        
+        # Add photo handler (OCR disabled - returns instruction message)
+        _bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
+        
+        # Add text message handler
         _bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
         # Start polling in the event loop

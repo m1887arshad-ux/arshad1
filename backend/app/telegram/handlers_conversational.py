@@ -26,6 +26,7 @@ from app.agent.decision_engine import validate_and_create_draft
 from app.services.symptom_mapper import map_symptom_to_medicines
 from app.agent.conversation_state import ConversationMode, IntentType
 from app.agent.intent_parser_deterministic import parse_intent_deterministic
+from app.telegram.utils import get_business_by_telegram_id
 from ai.intent_parser import parse_message_with_ai
 
 logger = logging.getLogger(__name__)
@@ -128,11 +129,12 @@ def update_conversation_state(
     
     # === STOCK CONFIRMATION FLOW ===
     if intent == IntentType.ASK_STOCK:
-        # Lock product in STOCK_CONFIRMED state
+        # Store raw query for now - handle_query_response will resolve to product_id
         if entities.get("product"):
-            context["product"] = entities["product"]  # ← LOCK PRODUCT
-            logger.info(f"[FSM] Product locked in STOCK_CONFIRMED: {entities['product']}")
-            return (ConversationMode.STOCK_CONFIRMED, context)
+            context["product"] = entities["product"]  # Raw query - will be resolved later
+            # Don't lock in STOCK_CONFIRMED yet - wait for handle_query_response to find product
+            logger.info(f"[FSM] Stock query for: {entities['product']}")
+            return (ConversationMode.BROWSING, context)  # Stay in BROWSING until product confirmed
         # No product found - stay in BROWSING
         context["last_query_product"] = entities.get("product")
         return (ConversationMode.BROWSING, context)
@@ -141,9 +143,11 @@ def update_conversation_state(
     if intent == IntentType.PROVIDE_QUANTITY:
         context["quantity"] = entities["quantity"]
         
-        # If in STOCK_CONFIRMED, product is already locked
+        # If in STOCK_CONFIRMED, product is already locked with product_id
         if current_mode == ConversationMode.STOCK_CONFIRMED:
-            logger.info(f"[FSM] Got quantity in STOCK_CONFIRMED → AWAITING_CUSTOMER")
+            product_id = context.get("product_id")
+            product = context.get("product")
+            logger.info(f"[FSM] Got quantity in STOCK_CONFIRMED (product_id={product_id}, product={product}) → AWAITING_CUSTOMER")
             return (ConversationMode.AWAITING_CUSTOMER, context)
         
         # If in ORDERING, use last_query_product if product not set
@@ -212,13 +216,26 @@ async def handle_query_response(
             )
             return
         
+        # FIX 1: Deterministic Sort - Always order by ID for consistent results
         item = db.query(Inventory).filter(
             Inventory.business_id == business_id,
             Inventory.item_name.ilike(f"%{product}%")
-        ).first()
+        ).order_by(Inventory.id).first()  # Add .order_by() for determinism
         
         if item:
             qty = int(item.quantity)
+            
+            # FIX 2: STATE INJECTION (CRITICAL FIX)
+            # Save the specific product ID that the user saw
+            # This ensures the invoice uses THIS exact product, not a fuzzy match later
+            context["product_id"] = item.id
+            context["product"] = item.item_name  # Overwrite raw input with canonical name
+            context["price"] = float(item.price)
+            
+            # Transition to STOCK_CONFIRMED now that we have a real product
+            # Persist this resolution immediately to the database
+            save_conversation_data(db, update.effective_chat.id, ConversationMode.STOCK_CONFIRMED, context)
+            
             msg = (
                 f"✅ {item.item_name}: {qty} units available\n"
                 f"💰 Price: ₹{item.price}\n\n"
@@ -337,12 +354,24 @@ async def handle_transaction_response(
         product = context.get("product")
         quantity = context.get("quantity")
         customer = context.get("customer", "Walk-in Customer")
+        product_id = context.get("product_id")  # Use saved product_id
         
-        # Check if product exists
-        item = db.query(Inventory).filter(
-            Inventory.business_id == business_id,
-            Inventory.item_name.ilike(f"%{product}%")
-        ).first()
+        # Use product_id if available (preferred), otherwise fallback to name search
+        item = None
+        if product_id:
+            item = db.query(Inventory).filter(
+                Inventory.business_id == business_id,
+                Inventory.id == product_id
+            ).first()
+            logger.info(f"[CONFIRMING] Using product_id={product_id}, found={item.item_name if item else 'None'}")
+        
+        # Fallback to name search if no product_id or not found
+        if not item and product:
+            item = db.query(Inventory).filter(
+                Inventory.business_id == business_id,
+                Inventory.item_name.ilike(f"%{product}%")
+            ).order_by(Inventory.id).first()  # Add deterministic sort
+            logger.warning(f"[CONFIRMING] Fallback search for '{product}', found={item.item_name if item else 'None'}")
         
         if not item:
             await update.message.reply_text(
@@ -376,20 +405,38 @@ async def execute_order(update, db, business_id: int, chat_id: int, context: dic
     """Execute confirmed order"""
     product = context.get("product")
     quantity = context.get("quantity")
+    product_id = context.get("product_id")  # FIX 3: Fetch the ID we saved earlier
     customer = context.get("customer", "Walk-in Customer")
     
-    # Find exact item
-    item = db.query(Inventory).filter(
-        Inventory.business_id == business_id,
-        Inventory.item_name.ilike(f"%{product}%")
-    ).first()
+    # Debug: Log what we received in context
+    logger.info(f"[EXECUTE_ORDER] Context: product={product}, product_id={product_id}, quantity={quantity}, customer={customer}")
+    
+    item = None
+    
+    # FIX 4: ID-Based Lookup Priority (MOST IMPORTANT CHANGE)
+    # If we have a product_id from the query phase, use it directly
+    # This ensures we get the EXACT product the user saw, not a fuzzy match
+    if product_id:
+        item = db.query(Inventory).filter(
+            Inventory.business_id == business_id,
+            Inventory.id == product_id
+        ).first()
+        logger.info(f"[EXECUTE_ORDER] Using product_id={product_id}, found={item.item_name if item else 'None'}")
+    
+    # Fallback only if ID is missing (legacy flows or direct orders)
+    if not item and product:
+        item = db.query(Inventory).filter(
+            Inventory.business_id == business_id,
+            Inventory.item_name.ilike(f"%{product}%")
+        ).order_by(Inventory.id).first()  # FIX 5: Always sort for determinism
+        logger.warning(f"[EXECUTE_ORDER] Fallback fuzzy search for '{product}', found={item.item_name if item else 'None'}")
     
     if not item:
         await update.message.reply_text("❌ Order create nahi ho paya - product not found")
         reset_conversation(db, chat_id)
         return
     
-    # Create draft
+    # Create draft - Pass the product_id explicitly
     draft = validate_and_create_draft(
         db,
         business_id,
@@ -397,6 +444,7 @@ async def execute_order(update, db, business_id: int, chat_id: int, context: dic
         telegram_chat_id=str(chat_id),
         intent="create_invoice",
         product=item.item_name,
+        product_id=item.id,  # FIX 6: PASS THE ID EXPLICITLY
         quantity=quantity,
         customer=customer,
         requires_prescription=item.requires_prescription
@@ -445,15 +493,18 @@ async def handle_message_conversational(update: Update, context: ContextTypes.DE
     
     db = SessionLocal()
     try:
-        # Find business
-        business = db.query(Business).filter(
-            Business.telegram_chat_id == str(chat_id)
-        ).first()
-        if not business:
-            business = db.query(Business).first()
+        # Resolve business using deterministic helper with fallback
+        business = get_business_by_telegram_id(db, chat_id)
+        
         if not business:
             await update.message.reply_text(
-                "No business linked. Please link Telegram from Owner Dashboard."
+                "❌ No business found\n\n"
+                "Please complete business setup in the Owner Dashboard first.\n\n"
+                f"💡 Your Chat ID: {chat_id}\n"
+                "You can add this to your dashboard to enable explicit linking."
+            )
+            logger.error(
+                f"[MSG] Rejected: No business found for chat_id={chat_id}"
             )
             return
         

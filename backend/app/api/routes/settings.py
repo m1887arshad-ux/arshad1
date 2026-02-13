@@ -34,6 +34,10 @@ def update_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[SETTINGS] Update request from user {current_user.id}: {data.dict()}")
+    
     business = _get_business(db, current_user)
     if data.require_approval_invoices is not None:
         business.require_approval_invoices = data.require_approval_invoices
@@ -45,4 +49,7 @@ def update_settings(
         business.preferred_language = data.preferred_language
     db.commit()
     db.refresh(business)
+    
+    logger.info(f"[SETTINGS] Updated business {business.id}: approval={business.require_approval_invoices}, notifications={business.whatsapp_notifications}, agent={business.agent_actions_enabled}")
+    
     return get_settings(db=db, current_user=current_user)

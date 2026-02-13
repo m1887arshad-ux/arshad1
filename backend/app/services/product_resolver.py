@@ -170,31 +170,51 @@ def resolve_product(
     # Find best match
     best_match = None
     best_confidence = 0.0
+    second_best_match = None
+    second_best_confidence = 0.0
     
     for item in items:
         confidence = calculate_match_confidence(user_input, item.item_name)
         
         if confidence > best_confidence:
+            # Shift current best to second best
+            second_best_match = best_match
+            second_best_confidence = best_confidence
+            # Set new best
             best_confidence = confidence
             best_match = item
+        elif confidence > second_best_confidence:
+            # Update second best
+            second_best_confidence = confidence
+            second_best_match = item
     
     # Check if confidence meets threshold
     if not best_match or best_confidence < min_confidence:
-        logger.info(
+        logger.warning(
             f"[ProductResolver] No match above threshold {min_confidence} "
             f"for '{user_input}'. Best: {best_match.item_name if best_match else 'None'} "
-            f"({best_confidence:.2f})"
+            f"({best_confidence:.2f}), "
+            f"Second: {second_best_match.item_name if second_best_match else 'None'} "
+            f"({second_best_confidence:.2f})"
         )
         return None
     
     logger.info(
         f"[ProductResolver] Matched '{user_input}' → '{best_match.item_name}' "
-        f"(confidence: {best_confidence:.2f})"
+        f"(product_id={best_match.id}, confidence: {best_confidence:.2f})"
     )
     
-    # Return canonical model
-    return {
-        "product_id": best_match.id,
+    # CRITICAL: Validate product_id before returning
+    if not best_match.id or not isinstance(best_match.id, int):
+        logger.error(
+            f"[ProductResolver] CRITICAL: Invalid product_id for '{best_match.item_name}'! "
+            f"ID: {best_match.id}, Type: {type(best_match.id)}"
+        )
+        return None
+    
+    # Return canonical model with GUARANTEED product_id
+    result = {
+        "product_id": int(best_match.id),  # Force int
         "canonical_name": best_match.item_name,  # NEVER raw user input
         "display_name": best_match.item_name,
         "price_per_unit": Decimal(str(best_match.price)),
@@ -203,6 +223,12 @@ def resolve_product(
         "disease": best_match.disease or "General use",
         "confidence": best_confidence
     }
+    
+    # Final validation
+    assert result["product_id"] is not None, "product_id must not be None"
+    assert result["product_id"] > 0, "product_id must be positive"
+    
+    return result
 
 
 def resolve_multiple_products(

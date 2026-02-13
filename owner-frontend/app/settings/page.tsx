@@ -58,9 +58,11 @@ export default function SettingsPage() {
       await updateSettings(next);
       setToast({ type: "success", message: "Setting updated" });
       setTimeout(() => setToast(null), 2000);
-    } catch {
+    } catch (error) {
+      console.error("Settings update error:", error);
       setSettings(prev); // Rollback on failure
-      setToast({ type: "error", message: "Failed to update setting" });
+      const errorMsg = error instanceof Error ? error.message : "Failed to update setting";
+      setToast({ type: "error", message: errorMsg });
       setTimeout(() => setToast(null), 3000);
     }
   }
@@ -68,15 +70,17 @@ export default function SettingsPage() {
   async function setLanguage(lang: string) {
     if (!settings) return;
     const prev = { ...settings };
-    const next = { ...settings, preferred_language: lang };
+    const next = { ...settings, preferredLanguage: lang };
     setSettings(next);
     try {
       await updateSettings(next);
       setToast({ type: "success", message: "Language updated" });
       setTimeout(() => setToast(null), 2000);
-    } catch {
+    } catch (error) {
+      console.error("Language update error:", error);
       setSettings(prev); // Rollback on failure
-      setToast({ type: "error", message: "Failed to update language" });
+      const errorMsg = error instanceof Error ? error.message : "Failed to update language";
+      setToast({ type: "error", message: errorMsg });
       setTimeout(() => setToast(null), 3000);
     }
   }
@@ -121,23 +125,23 @@ export default function SettingsPage() {
             <ToggleCard
               label="Require approval for all invoices"
               description="When enabled, all invoices require your explicit approval before being sent."
-              checked={settings.require_approval_invoices}
-              onToggle={(v) => toggle("require_approval_invoices", v)}
+              checked={settings.requireApprovalForInvoices}
+              onToggle={(v) => toggle("requireApprovalForInvoices", v)}
               icon={<DocIcon />}
-              warning={!settings.require_approval_invoices}
+              warning={!settings.requireApprovalForInvoices}
             />
             <ToggleCard
-              label="WhatsApp notifications"
+              label="Telegram notifications"
               description="Receive notifications when actions need your attention."
-              checked={settings.whatsapp_notifications}
-              onToggle={(v) => toggle("whatsapp_notifications", v)}
-              icon={<WhatsAppIcon />}
+              checked={settings.whatsAppNotifications}
+              onToggle={(v) => toggle("whatsAppNotifications", v)}
+              icon={<TelegramIcon />}
             />
             <ToggleCard
               label="Enable Agent Actions"
               description="Allow the agent to process incoming requests and create drafts."
-              checked={settings.agent_actions_enabled}
-              onToggle={(v) => toggle("agent_actions_enabled", v)}
+              checked={settings.agentActionsEnabled}
+              onToggle={(v) => toggle("agentActionsEnabled", v)}
               icon={<AgentIcon />}
             />
           </div>
@@ -178,7 +182,7 @@ export default function SettingsPage() {
               Preferred Language
             </label>
             <select
-              value={settings.preferred_language}
+              value={settings.preferredLanguage}
               onChange={(e) => setLanguage(e.target.value)}
               className="w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             >
@@ -256,10 +260,10 @@ function DocIcon() {
   );
 }
 
-function WhatsAppIcon() {
+function TelegramIcon() {
   return (
-    <svg className="w-5 h-5 text-green-500" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+    <svg className="w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
     </svg>
   );
 }
