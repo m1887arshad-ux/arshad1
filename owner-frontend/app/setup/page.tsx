@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PrimaryButton } from "@/components/PrimaryButton";
-import { setupBusiness } from "@/lib/api";
+import { setupBusiness, getCurrentUser } from "@/lib/api";
 
 const STEPS = [
   { id: 1, title: "Basic Information" },
@@ -24,10 +24,17 @@ export default function SetupPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem("bharat_owner_token")) {
-      router.replace("/login");
+    async function checkAuth() {
+      try {
+        await getCurrentUser();
+        // User is logged in, allow setup
+      } catch (err) {
+        // Not logged in, redirect to login
+        router.replace("/login");
+      }
     }
-  }, [router]);
+    checkAuth();
+  }, []);
 
   async function handleNext() {
     if (step < 3) {

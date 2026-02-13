@@ -1,20 +1,24 @@
-"""FastAPI dependencies: DB session and current user from JWT."""
-from typing import Generator
+"""FastAPI dependencies: DB session and current user from JWT.
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
+SECURITY: Supports JWT from:
+1. Authorization header (for API clients)
+2. httpOnly cookie (for web frontend)
+"""
+from typing import Generator, Optional
+
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.core.security import decode_access_token
 from app.models.user import User
 
-# Owner Website uses Bearer JWT
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 security = HTTPBearer(auto_error=False)
 
 
 def get_db() -> Generator[Session, None, None]:
+    """Get database session."""
     db = SessionLocal()
     try:
         yield db
@@ -23,16 +27,30 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> int:
-    """Extract user id from JWT. Trust: all owner APIs require valid JWT."""
-    if not credentials:
+    """
+    Extract user ID from JWT token.
+    SECURITY: Checks both Authorization header and httpOnly cookie.
+    Header takes precedence over cookie.
+    """
+    token = None
+
+    # Try from Authorization header first (for API clients)
+    if credentials:
+        token = credentials.credentials
+    # Fall back to httpOnly cookie (for web frontend)
+    elif "bharat_owner_token" in request.cookies:
+        token = request.cookies["bharat_owner_token"]
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = credentials.credentials
+
     sub = decode_access_token(token)
     if not sub:
         raise HTTPException(
@@ -40,6 +58,7 @@ def get_current_user_id(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     try:
         return int(sub)
     except ValueError:
@@ -55,3 +74,4 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
+

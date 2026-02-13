@@ -1,21 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
-import { getCurrentOwner, getSettings, updateSettings, type OwnerSettings } from "@/lib/api";
+import { getCurrentUser, getCurrentOwner, getSettings, updateSettings, type OwnerSettings } from "@/lib/api";
 import { useTheme } from "../theme-provider";
 
 const LANGUAGES = ["Hindi", "English", "Hinglish", "Marathi", "Tamil", "Gujarati"];
 
 export default function SettingsPage() {
+  const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [ownerName, setOwnerName] = useState("Owner");
   const [settings, setSettings] = useState<OwnerSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const { theme, toggleTheme } = useTheme();
 
+  // Check auth before rendering
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        await getCurrentUser();
+        // Auth successful
+        setCheckingAuth(false);
+      } catch (err) {
+        // Not logged in
+        router.replace("/login");
+      }
+    }
+    checkAuth();
+  }, []);
+
   useEffect(() => {
     async function load() {
+      if (checkingAuth) return; // Wait for auth check
       try {
         const [owner, s] = await Promise.all([getCurrentOwner(), getSettings()]);
         setOwnerName(owner.name);
@@ -28,7 +47,7 @@ export default function SettingsPage() {
       }
     }
     load();
-  }, []);
+  }, [checkingAuth]);
 
   async function toggle(key: keyof OwnerSettings, value: boolean) {
     if (!settings) return;
@@ -49,7 +68,7 @@ export default function SettingsPage() {
   async function setLanguage(lang: string) {
     if (!settings) return;
     const prev = { ...settings };
-    const next = { ...settings, preferredLanguage: lang };
+    const next = { ...settings, preferred_language: lang };
     setSettings(next);
     try {
       await updateSettings(next);
@@ -72,6 +91,12 @@ export default function SettingsPage() {
 
   return (
     <OwnerShell title="Control Settings" ownerName={ownerName}>
+      {checkingAuth ? (
+        <div className="flex items-center justify-center p-12">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      ) : (
+      <>
       {/* Toast notification */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
@@ -96,23 +121,23 @@ export default function SettingsPage() {
             <ToggleCard
               label="Require approval for all invoices"
               description="When enabled, all invoices require your explicit approval before being sent."
-              checked={settings.requireApprovalForInvoices}
-              onToggle={(v) => toggle("requireApprovalForInvoices", v)}
+              checked={settings.require_approval_invoices}
+              onToggle={(v) => toggle("require_approval_invoices", v)}
               icon={<DocIcon />}
-              warning={!settings.requireApprovalForInvoices}
+              warning={!settings.require_approval_invoices}
             />
             <ToggleCard
               label="WhatsApp notifications"
               description="Receive notifications when actions need your attention."
-              checked={settings.whatsAppNotifications}
-              onToggle={(v) => toggle("whatsAppNotifications", v)}
+              checked={settings.whatsapp_notifications}
+              onToggle={(v) => toggle("whatsapp_notifications", v)}
               icon={<WhatsAppIcon />}
             />
             <ToggleCard
               label="Enable Agent Actions"
               description="Allow the agent to process incoming requests and create drafts."
-              checked={settings.agentActionsEnabled}
-              onToggle={(v) => toggle("agentActionsEnabled", v)}
+              checked={settings.agent_actions_enabled}
+              onToggle={(v) => toggle("agent_actions_enabled", v)}
               icon={<AgentIcon />}
             />
           </div>
@@ -153,7 +178,7 @@ export default function SettingsPage() {
               Preferred Language
             </label>
             <select
-              value={settings.preferredLanguage}
+              value={settings.preferred_language}
               onChange={(e) => setLanguage(e.target.value)}
               className="w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             >
@@ -173,6 +198,8 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+      </>
+      )}
     </OwnerShell>
   );
 }
@@ -210,13 +237,13 @@ function ToggleCard({
             }`}
           />
         </button>
-        <div>
+        <div className="flex-1">
           <span className="text-sm font-medium text-gray-900">{label}</span>
           {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
           {warning && <p className="text-xs text-orange-600 mt-0.5 font-medium">⚠️ Disabling this reduces safety controls</p>}
         </div>
       </div>
-      <div className="text-gray-400">{icon}</div>
+      <div className="text-gray-400 pointer-events-none flex-shrink-0">{icon}</div>
     </div>
   );
 }

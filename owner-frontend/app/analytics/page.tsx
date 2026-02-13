@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import {
+  getCurrentUser,
   getCurrentOwner,
   getAnalyticsSummary,
   getDailySales,
@@ -29,7 +31,10 @@ import {
   Line,
 } from "recharts";
 
+
 export default function AnalyticsPage() {
+  const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [ownerName, setOwnerName] = useState("Owner");
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [dailySales, setDailySales] = useState<DailySalesData[]>([]);
@@ -37,8 +42,24 @@ export default function AnalyticsPage() {
   const [actionStats, setActionStats] = useState<ActionStats | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Check auth before rendering
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        await getCurrentUser();
+        // Auth successful
+        setCheckingAuth(false);
+      } catch (err) {
+        // Not logged in
+        router.replace("/login");
+      }
+    }
+    checkAuth();
+  }, []);
+
   useEffect(() => {
     async function load() {
+      if (checkingAuth) return;
       try {
         const [owner, summaryData, sales, products, stats] = await Promise.all([
           getCurrentOwner(),
@@ -64,7 +85,7 @@ export default function AnalyticsPage() {
       }
     }
     load();
-  }, []);
+  }, [checkingAuth]);
 
   const actionPieData = actionStats
     ? [
@@ -77,12 +98,17 @@ export default function AnalyticsPage() {
 
   return (
     <OwnerShell title="Analytics" ownerName={ownerName}>
-      <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-gray-900">Business Analytics</h2>
+      {checkingAuth ? (
+        <div className="flex items-center justify-center p-12">
+          <p className="text-gray-900">Loading...</p>
+        </div>
+      ) : (
+      <div className="space-y-6 text-gray-900">
+        <h2 className="text-2xl font-bold text-black">Business Analytics</h2>
 
         {loading ? (
           <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-            <div className="animate-pulse text-gray-500">Loading analytics…</div>
+            <div className="animate-pulse text-black">Loading analytics…</div>
           </div>
         ) : (
           <>
@@ -130,20 +156,21 @@ export default function AnalyticsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Daily Sales Bar Chart */}
               <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                <h3 className="text-lg font-semibold text-black mb-4">
                   Daily Sales (Last 7 Days)
                 </h3>
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={dailySales}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#6b7280" />
-                      <YAxis tick={{ fontSize: 12 }} stroke="#6b7280" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#111827" />
+                      <YAxis tick={{ fontSize: 12 }} stroke="#111827" />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: "#fff",
                           border: "1px solid #e5e7eb",
                           borderRadius: "8px",
+                          color: "#111827",
                         }}
                         formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Revenue"]}
                       />
@@ -155,7 +182,7 @@ export default function AnalyticsPage() {
 
               {/* Action Stats Pie Chart */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Action Status</h3>
+                <h3 className="text-lg font-semibold text-black mb-4">Action Status</h3>
                 <div className="h-72">
                   {actionPieData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -177,12 +204,12 @@ export default function AnalyticsPage() {
                             <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
                         </Pie>
-                        <Legend />
-                        <Tooltip />
+                        <Legend wrapperStyle={{ color: "#111827" }} />
+                        <Tooltip contentStyle={{ color: "#111827" }} />
                       </PieChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400">
+                    <div className="flex items-center justify-center h-full text-black">
                       No action data yet
                     </div>
                   )}
@@ -194,20 +221,21 @@ export default function AnalyticsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Revenue Trend Line Chart */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                <h3 className="text-lg font-semibold text-black mb-4">
                   Revenue Trend
                 </h3>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={dailySales}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#6b7280" />
-                      <YAxis tick={{ fontSize: 12 }} stroke="#6b7280" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#111827" />
+                      <YAxis tick={{ fontSize: 12 }} stroke="#111827" />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: "#fff",
                           border: "1px solid #e5e7eb",
                           borderRadius: "8px",
+                          color: "#111827",
                         }}
                         formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Revenue"]}
                       />
@@ -225,7 +253,7 @@ export default function AnalyticsPage() {
 
               {/* Top Products */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                <h3 className="text-lg font-semibold text-black mb-4">
                   Top Products by Stock
                 </h3>
                 <div className="h-64">
@@ -233,12 +261,12 @@ export default function AnalyticsPage() {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={topProducts} layout="vertical">
                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis type="number" tick={{ fontSize: 12 }} stroke="#6b7280" />
+                        <XAxis type="number" tick={{ fontSize: 12 }} stroke="#111827" />
                         <YAxis
                           dataKey="name"
                           type="category"
                           tick={{ fontSize: 12 }}
-                          stroke="#6b7280"
+                          stroke="#111827"
                           width={80}
                         />
                         <Tooltip
@@ -246,6 +274,7 @@ export default function AnalyticsPage() {
                             backgroundColor: "#fff",
                             border: "1px solid #e5e7eb",
                             borderRadius: "8px",
+                            color: "#111827",
                           }}
                           formatter={(value: number) => [`${value} units`, "Stock"]}
                         />
@@ -257,7 +286,7 @@ export default function AnalyticsPage() {
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400">
+                    <div className="flex items-center justify-center h-full text-black">
                       No product data yet
                     </div>
                   )}
@@ -267,6 +296,7 @@ export default function AnalyticsPage() {
           </>
         )}
       </div>
+      )}
     </OwnerShell>
   );
 }
@@ -288,8 +318,8 @@ function SummaryCard({
       <div className="flex items-center gap-3">
         <div className={`${color} text-white p-2 rounded-lg`}>{icon}</div>
         <div className="min-w-0">
-          <p className="text-xs text-gray-500 truncate">{title}</p>
-          <p className="text-lg font-bold text-gray-900 truncate">{value}</p>
+          <p className="text-xs text-black truncate">{title}</p>
+          <p className="text-lg font-bold text-black truncate">{value}</p>
         </div>
       </div>
     </div>

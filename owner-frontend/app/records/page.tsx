@@ -1,24 +1,33 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import { Table } from "@/components/Table";
 import { 
+  getCurrentUser,
   getCurrentOwner, 
   getInvoices, 
   getLedgerEntries, 
   getInventoryItems,
-  createInventoryItem,
-  updateInventoryItem,
-  deleteInventoryItem,
+  addInventoryItem,
+  removeInventoryItem,
   exportInvoicesCSV,
   exportInventoryCSV,
 } from "@/lib/api";
-import type { InvoiceRow, LedgerRow, InventoryRow, InventoryCreateData } from "@/lib/api";
+import type { InventoryItemCreate } from "@/lib/api";
 
 type TabId = "invoices" | "ledger" | "inventory";
 
+// Type aliases for records data
+type InvoiceRow = any;
+type LedgerRow = any;
+type InventoryRow = any;
+type InventoryCreateData = InventoryItemCreate;
+
 export default function RecordsPage() {
+  const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [ownerName, setOwnerName] = useState("Owner");
   const [tab, setTab] = useState<TabId>("invoices");
   const [search, setSearch] = useState("");
@@ -40,6 +49,21 @@ export default function RecordsPage() {
   const [formError, setFormError] = useState("");
   const [formLoading, setFormLoading] = useState(false);
 
+  // Check auth before rendering
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        await getCurrentUser();
+        // Auth successful
+        setCheckingAuth(false);
+      } catch (err) {
+        // Not logged in
+        router.replace("/login");
+      }
+    }
+    checkAuth();
+  }, []);
+
   // Handle Escape key to close modal
   useEffect(() => {
     if (!showModal) return;
@@ -56,6 +80,8 @@ export default function RecordsPage() {
 
   useEffect(() => {
     async function loadOwner() {
+      if (checkingAuth) return; // Wait for auth check
+      
       try {
         const owner = await getCurrentOwner();
         setOwnerName(owner.name);
@@ -67,16 +93,16 @@ export default function RecordsPage() {
   }, []);
 
   const loadInventory = useCallback(async () => {
-    const data = await getInventoryItems(search);
+    const data = await getInventoryItems();
     setInventory(data);
-  }, [search]);
+  }, []);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
         if (tab === "invoices") {
-          const data = await getInvoices(search);
+          const data = await getInvoices();
           setInvoices(data);
         } else if (tab === "ledger") {
           const data = await getLedgerEntries();
@@ -133,7 +159,7 @@ export default function RecordsPage() {
     if (!confirm(`Are you sure you want to delete "${item.item_name}"?`)) return;
     
     try {
-      await deleteInventoryItem(item.id);
+      await removeInventoryItem(item.id);
       await loadInventory();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete");
@@ -153,11 +179,15 @@ export default function RecordsPage() {
     setFormLoading(true);
     try {
       if (editingItem) {
-        await updateInventoryItem(editingItem.id, formData);
+        // Delete old item and add new one
+        await removeInventoryItem(editingItem.id);
+        await addInventoryItem(formData);
       } else {
-        await createInventoryItem(formData);
+        await addInventoryItem(formData);
       }
       setShowModal(false);
+      setEditingItem(null);
+      setFormData({ item_name: "", quantity: 0, price: 50, disease: "", requires_prescription: false });
       await loadInventory();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save");
@@ -166,8 +196,31 @@ export default function RecordsPage() {
     }
   };
 
+  // Export invoices CSV
+  const handleExportInvoices = async () => {
+    try {
+      await exportInvoicesCSV();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to export invoices");
+    }
+  };
+
+  // Export inventory CSV
+  const handleExportInventory = async () => {
+    try {
+      await exportInventoryCSV();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to export inventory");
+    }
+  };
+
   return (
     <OwnerShell title="Records & Ledger" ownerName={ownerName}>
+      {checkingAuth ? (
+        <div className="flex items-center justify-center p-12">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      ) : (
       <div className="space-y-6">
         <h2 className="text-2xl font-bold text-gray-900">Records & Ledger</h2>
 
@@ -201,7 +254,7 @@ export default function RecordsPage() {
               />
             </div>
             <button
-              onClick={() => exportInvoicesCSV()}
+              onClick={handleExportInvoices}
               className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
             >
               <DownloadIcon className="w-5 h-5" />
@@ -223,7 +276,7 @@ export default function RecordsPage() {
               />
             </div>
             <button
-              onClick={() => exportInventoryCSV()}
+              onClick={handleExportInventory}
               className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
             >
               <DownloadIcon className="w-5 h-5" />
@@ -370,6 +423,7 @@ export default function RecordsPage() {
           )
         )}
       </div>
+      )}
 
       {/* Add/Edit Modal */}
       {showModal && (
@@ -448,18 +502,6 @@ export default function RecordsPage() {
                     onChange={(e) => setFormData({ ...formData, disease: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="e.g., Fever, Pain, Headache"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Expiry Date
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.expiry_date || ""}
-                    onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
 

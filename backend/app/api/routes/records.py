@@ -1,6 +1,5 @@
-"""Records: invoices, ledger, inventory for Owner Website with CRUD support."""
-from fastapi import APIRouter, Depends, Query, HTTPException, Body
-from fastapi.responses import StreamingResponse
+"""Records: read-only invoices, ledger, inventory for Owner Website."""
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
@@ -14,10 +13,10 @@ from app.api.deps import get_db, get_current_user
 from app.models.user import User
 from app.models.business import Business
 from app.models.invoice import Invoice
+from app.services.invoice_service import create_invoice_for_customer
 from app.models.ledger import Ledger
 from app.models.inventory import Inventory
 from app.models.customer import Customer
-from app.models.agent_action import AgentAction
 
 router = APIRouter()
 
@@ -51,6 +50,41 @@ def _get_business(db: Session, user: User) -> Business:
     return b
 
 
+@router.get("/invoices/export/csv")
+def export_invoices_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Export invoices as CSV file."""
+    business = _get_business(db, current_user)
+    
+    # Query invoices with customer details
+    rows = (
+        db.query(Invoice, Customer)
+        .join(Customer, Invoice.customer_id == Customer.id)
+        .filter(Customer.business_id == business.id)
+        .order_by(Invoice.created_at.desc())
+        .all()
+    )
+    
+    # Create CSV content
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Date", "Customer", "Amount", "Status"])
+    
+    for inv, customer in rows:
+        date_str = inv.created_at.strftime("%d %b, %Y") if inv.created_at else ""
+        amount = f"₹ {inv.amount:,.2f}" if inv.amount else "₹ 0.00"
+        writer.writerow([date_str, customer.name, amount, inv.status or "Pending"])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=invoices.csv"}
+    )
+
+
 @router.get("/invoices", response_model=list)
 def list_invoices(
     search: str | None = Query(None),
@@ -80,6 +114,35 @@ def list_invoices(
     ]
 
 
+@router.post("/invoices", response_model=dict)
+def generate_invoice(
+    data: InvoiceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a new invoice for a customer and add ledger entry."""
+    business = _get_business(db, current_user)
+    if not data.customer_name.strip():
+        raise HTTPException(status_code=400, detail="Customer name is required")
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+
+    inv = create_invoice_for_customer(
+        db,
+        business_id=business.id,
+        customer_name=data.customer_name,
+        amount=data.amount,
+        auto_commit=True,
+    )
+    return {
+        "id": inv.id,
+        "customer_name": data.customer_name,
+        "amount": f"₹ {inv.amount:,.2f}",
+        "status": inv.status,
+        "created_at": inv.created_at.isoformat() if inv.created_at else None,
+    }
+
+
 @router.get("/ledger", response_model=list)
 def list_ledger(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Read-only ledger entries."""
@@ -102,6 +165,43 @@ def list_ledger(db: Session = Depends(get_db), current_user: User = Depends(get_
         }
         for l, c in rows
     ]
+
+
+@router.get("/inventory/export/csv")
+def export_inventory_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Export inventory as CSV file."""
+    business = _get_business(db, current_user)
+    
+    # Query inventory items
+    items = db.query(Inventory).filter(Inventory.business_id == business.id).order_by(Inventory.item_name).all()
+    
+    # Create CSV content
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Medicine Name", "Quantity", "Unit", "Price", "Disease", "Requires Prescription"])
+    
+    for item in items:
+        unit = "strips" if "strip" not in item.item_name.lower() else "units"
+        price = f"₹ {item.price:,.2f}" if item.price else "₹ 0.00"
+        requires_rx = "Yes" if item.requires_prescription else "No"
+        writer.writerow([
+            item.item_name,
+            item.quantity or 0,
+            unit,
+            price,
+            item.disease or "-",
+            requires_rx
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=inventory.csv"}
+    )
 
 
 @router.get("/inventory", response_model=list)
@@ -313,84 +413,12 @@ def delete_inventory_item(
     ).first()
     
     if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+        return {"in_stock": False, "message": f"{item_name} stock mein nahi hai"}
     
-    item_name = item.item_name
-    db.delete(item)
-    db.commit()
-    
-    return {"message": f"Deleted {item_name}", "id": item_id}
-
-
-# ==============================================================================
-# EXPORT ENDPOINTS (CSV Download)
-# ==============================================================================
-
-def export_invoices_csv(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Export all invoices as CSV file."""
-    business = _get_business(db, current_user)
-    
-    rows = (
-        db.query(Invoice, Customer)
-        .join(Customer, Invoice.customer_id == Customer.id)
-        .filter(Customer.business_id == business.id)
-        .order_by(Invoice.created_at.desc())
-        .all()
-    )
-    
-    # Create CSV in memory
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Date", "Customer", "Amount (₹)", "Status"])
-    
-    for inv, c in rows:
-        writer.writerow([
-            inv.created_at.strftime("%Y-%m-%d %H:%M") if inv.created_at else "",
-            c.name,
-            float(inv.amount) if inv.amount else 0,
-            inv.status
-        ])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=invoices_{date.today()}.csv"}
-    )
-
-
-def export_inventory_csv(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Export inventory as CSV file."""
-    business = _get_business(db, current_user)
-    
-    items = db.query(Inventory).filter(
-        Inventory.business_id == business.id
-    ).order_by(Inventory.item_name).all()
-    
-    # Create CSV in memory
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Medicine Name", "Quantity", "Price (₹)", "Disease", "Expiry Date", "Requires Rx"])
-    
-    for i in items:
-        writer.writerow([
-            i.item_name,
-            float(i.quantity),
-            float(i.price) if i.price else 50.0,
-            i.disease or "",
-            i.expiry_date.isoformat() if i.expiry_date else "",
-            "Yes" if i.requires_prescription else "No"
-        ])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=inventory_{date.today()}.csv"}
-    )
+    qty = float(item.quantity)
+    if qty == 0:
+        return {"in_stock": False, "message": f"{item.item_name} stock khatam ho gaya hai"}
+    elif qty < 20:
+        return {"in_stock": True, "quantity": qty, "message": f"{item.item_name} kam stock hai - {qty} units bacha hai"}
+    else:
+        return {"in_stock": True, "quantity": qty, "message": f"{item.item_name} stock mein hai - {qty} units available"}
