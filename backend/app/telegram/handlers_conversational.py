@@ -470,10 +470,19 @@ async def handle_message_conversational(update: Update, context: ContextTypes.DE
         # If low confidence, try LLM
         if intent_result["confidence"] == "low":
             llm_result = parse_message_with_ai(text, context=current_context)
-            if llm_result.get("confidence") in ["high", "medium"]:
+            content_type = llm_result.get("content_type", "unknown")
+            
+            # Check for non-business content first
+            if content_type in ["medical_query", "abusive", "greeting"]:
+                # Don't override with LLM for non-business content
+                # Let downstream handlers deal with content_type classification
+                intent_result["content_type"] = content_type
+                logger.info(f"[LLM] Classified as {content_type}, not overriding intent")
+            elif llm_result.get("confidence") in ["high", "medium"]:
                 intent_result = {
                     "intent": llm_result.get("intent", IntentType.UNKNOWN),
                     "confidence": llm_result["confidence"],
+                    "content_type": content_type,
                     "entities": {
                         "product": llm_result.get("product"),
                         "quantity": llm_result.get("quantity"),

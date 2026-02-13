@@ -59,3 +59,32 @@ def stop_bot_background():
     """Stop polling. Called on FastAPI shutdown."""
     # Bot runs in daemon thread, will be killed when main process exits
     pass
+
+
+async def send_telegram_message(chat_id: int | str, message: str) -> bool:
+    """
+    Send a message to a Telegram chat
+    
+    Args:
+        chat_id: Telegram chat ID
+        message: Message text to send
+        
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    global _bot_app
+    
+    if not _bot_app:
+        print("Telegram bot not initialized")
+        return False
+    
+    try:
+        await _bot_app.bot.send_message(
+            chat_id=int(chat_id),
+            text=message,
+            parse_mode='Markdown'
+        )
+        return True
+    except Exception as e:
+        print(f"Failed to send Telegram message to {chat_id}: {e}")
+        return False

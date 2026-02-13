@@ -13,9 +13,13 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [isRegister, setIsRegister] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [authCheckDone, setAuthCheckDone] = useState(false);
 
   // Check if already logged in (via httpOnly cookie)
   useEffect(() => {
+    // Prevent multiple auth checks
+    if (authCheckDone) return;
+    
     async function checkAuth() {
       try {
         await getCurrentUser();
@@ -24,10 +28,12 @@ export default function LoginPage() {
       } catch (err) {
         // Not logged in (expected), allow login form
         setCheckingAuth(false);
+      } finally {
+        setAuthCheckDone(true);
       }
     }
     checkAuth();
-  }, []);
+  }, [router, authCheckDone]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

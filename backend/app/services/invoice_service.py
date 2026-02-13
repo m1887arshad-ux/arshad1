@@ -7,6 +7,29 @@ from app.models.invoice import Invoice
 from app.services.ledger_service import add_ledger_entry
 
 
+def calculate_gst(base_amount: float, gst_rate: float = 0.18) -> dict:
+    """Calculate GST breakdown for Indian tax compliance.
+    
+    Args:
+        base_amount: Amount before tax
+        gst_rate: GST rate (default 18% for most medicines, use 5% for generics if needed)
+    
+    Returns:
+        dict with base_amount, gst_rate, gst_amount, total_amount
+    """
+    base = Decimal(str(base_amount))
+    rate = Decimal(str(gst_rate))
+    gst_amt = base * rate
+    total = base + gst_amt
+    
+    return {
+        "base_amount": base,
+        "gst_rate": rate,
+        "gst_amount": gst_amt,
+        "total_amount": total
+    }
+
+
 def get_or_create_customer(db: Session, business_id: int, name: str, phone: str | None = None) -> Customer:
     """Find customer by name under business or create."""
     name_clean = name.strip()
@@ -21,20 +44,34 @@ def get_or_create_customer(db: Session, business_id: int, name: str, phone: str 
 
 
 def create_invoice_for_customer(db: Session, business_id: int, customer_name: str, amount: float, auto_commit: bool = False) -> Invoice:
-    """Create invoice and ledger entry. Called only after owner approval.
+    """Create invoice with GST calculation and ledger entry. Called only after owner approval.
     
     Args:
+        amount: Base amount (before GST). GST will be calculated automatically at 18%
         auto_commit: If True, commits immediately. If False, caller must commit.
     """
     customer = get_or_create_customer(db, business_id, customer_name)
-    inv = Invoice(customer_id=customer.id, amount=Decimal(str(amount)), status="draft")
+    
+    # Calculate GST breakdown (18% GST for medicines in India)
+    gst_calc = calculate_gst(amount, gst_rate=0.18)
+    
+    inv = Invoice(
+        customer_id=customer.id,
+        base_amount=gst_calc["base_amount"],
+        gst_rate=gst_calc["gst_rate"],
+        gst_amount=gst_calc["gst_amount"],
+        amount=gst_calc["total_amount"],  # Total = base + GST
+        status="draft"
+    )
     db.add(inv)
     if auto_commit:
         db.commit()
         db.refresh(inv)
     else:
         db.flush()  # Get ID without committing
-    add_ledger_entry(db, customer.id, debit=Decimal(str(amount)), description=f"Invoice #{inv.id}")
+    
+    # Ledger entry uses total amount (including GST)
+    add_ledger_entry(db, customer.id, debit=gst_calc["total_amount"], description=f"Invoice #{inv.id}")
     if auto_commit:
         db.commit()
     return inv

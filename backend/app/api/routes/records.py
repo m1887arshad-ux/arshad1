@@ -1,5 +1,6 @@
 """Records: read-only invoices, ledger, inventory for Owner Website."""
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from app.services.invoice_service import create_invoice_for_customer
 from app.models.ledger import Ledger
 from app.models.inventory import Inventory
 from app.models.customer import Customer
+from app.services.pdf_service import generate_invoice_pdf
 
 router = APIRouter()
 
@@ -31,7 +33,6 @@ class InventoryCreate(BaseModel):
     price: float = 50.0
     disease: Optional[str] = None
     requires_prescription: bool = False
-    expiry_date: Optional[date] = None
 
 
 class InventoryUpdate(BaseModel):
@@ -40,7 +41,12 @@ class InventoryUpdate(BaseModel):
     price: Optional[float] = None
     disease: Optional[str] = None
     requires_prescription: Optional[bool] = None
-    expiry_date: Optional[date] = None
+
+
+class InvoiceCreate(BaseModel):
+    customer_name: str
+    amount: float
+    phone: Optional[str] = None
 
 
 def _get_business(db: Session, user: User) -> Business:
@@ -143,6 +149,38 @@ def generate_invoice(
     }
 
 
+@router.get("/invoices/{invoice_id}/pdf")
+def download_invoice_pdf(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate and download PDF for an invoice."""
+    business = _get_business(db, current_user)
+    
+    # Verify invoice belongs to this business
+    invoice = (
+        db.query(Invoice)
+        .join(Customer, Invoice.customer_id == Customer.id)
+        .filter(Invoice.id == invoice_id, Customer.business_id == business.id)
+        .first()
+    )
+    
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Generate PDF
+    pdf_buffer = generate_invoice_pdf(db, invoice_id)
+    
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=invoice_{invoice_id}.pdf"
+        }
+    )
+
+
 @router.get("/ledger", response_model=list)
 def list_ledger(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Read-only ledger entries."""
@@ -226,7 +264,6 @@ def list_inventory(
             "price": float(i.price) if i.price else 50.0,
             "disease": i.disease or "",
             "requires_prescription": i.requires_prescription or False,
-            "expiry_date": i.expiry_date.isoformat() if i.expiry_date else None,
             "unit": "strips" if "strip" not in i.item_name.lower() else "units",
             "status": "Low Stock" if float(i.quantity) < 20 else "In Stock"
         }
@@ -263,36 +300,18 @@ def get_low_stock_items(
 
 
 # ==============================================================================
-# EXPIRY DATE ALERTS ENDPOINT
+# EXPIRY DATE ALERTS ENDPOINT (DISABLED - Feature Removed)
 # ==============================================================================
 
+@router.get("/inventory/expiring-soon", response_model=list)
 def get_expiring_items(
     days: int = Query(30, description="Alert for items expiring within N days"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get medicines expiring soon for dashboard alert."""
-    business = _get_business(db, current_user)
-    today = date.today()
-    alert_date = today + timedelta(days=days)
-    
-    items = db.query(Inventory).filter(
-        Inventory.business_id == business.id,
-        Inventory.expiry_date.isnot(None),
-        Inventory.expiry_date <= alert_date,
-        Inventory.expiry_date >= today
-    ).order_by(Inventory.expiry_date.asc()).limit(10).all()
-    
-    return [
-        {
-            "id": i.id,
-            "item_name": i.item_name,
-            "expiry_date": i.expiry_date.isoformat() if i.expiry_date else None,
-            "days_until_expiry": (i.expiry_date - today).days if i.expiry_date else None,
-            "quantity": float(i.quantity)
-        }
-        for i in items
-    ]
+    # Expiry date feature removed - return empty list
+    return []
 
 
 # ==============================================================================
@@ -331,8 +350,7 @@ def create_inventory_item(
         quantity=Decimal(str(item.quantity)),
         price=Decimal(str(item.price)),
         disease=item.disease,
-        requires_prescription=item.requires_prescription,
-        expiry_date=item.expiry_date
+        requires_prescription=item.requires_prescription
     )
     db.add(new_item)
     db.commit()
@@ -383,8 +401,6 @@ def update_inventory_item(
         item.disease = updates.disease
     if updates.requires_prescription is not None:
         item.requires_prescription = updates.requires_prescription
-    if updates.expiry_date is not None:
-        item.expiry_date = updates.expiry_date
     
     db.commit()
     db.refresh(item)
@@ -413,7 +429,7 @@ def delete_inventory_item(
     ).first()
     
     if not item:
-        return {"in_stock": False, "message": f"{item_name} stock mein nahi hai"}
+        return {"in_stock": False, "message": "Item not found"}
     
     qty = float(item.quantity)
     if qty == 0:

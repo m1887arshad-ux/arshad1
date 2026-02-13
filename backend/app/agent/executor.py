@@ -8,17 +8,21 @@ SAFETY MODEL:
 - All financial/communication actions require explicit approval
 
 SUPPORTED INTENTS:
-- create_invoice: Creates invoice + ledger entry
+- create_invoice: Creates invoice + ledger entry + sends to customer via Telegram
 - send_payment_reminder: Sends Telegram reminder to customer (PROACTIVE AGENT)
 """
 import logging
+import asyncio
 from sqlalchemy.orm import Session
 
 from app.models.agent_action import AgentAction
 from app.models.customer import Customer
 from app.models.invoice import Invoice
+from app.models.business import Business
 from app.services.invoice_service import create_invoice_for_customer
 from app.services.ledger_service import add_ledger_entry
+from app.services.pdf_service import format_invoice_message
+from app.telegram.bot import send_telegram_message
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +54,43 @@ def execute_action(db: Session, action: AgentAction, auto_commit: bool = False) 
         payload = action.payload or {}
         customer_name = payload.get("customer_name")
         amount = payload.get("amount")
+        telegram_chat_id = payload.get("telegram_chat_id")
+        
         if customer_name and amount is not None:
             invoice = create_invoice_for_customer(db, action.business_id, customer_name, float(amount), auto_commit=False)
             logger.info(f"Created invoice {invoice.id} for customer {customer_name}, amount {amount}")
             result["invoice_id"] = invoice.id
             if auto_commit:
                 db.commit()
+            
+            # Send invoice to customer via Telegram if chat_id available
+            if telegram_chat_id:
+                try:
+                    # Get business info for message
+                    business = db.query(Business).filter(Business.id == action.business_id).first()
+                    business_name = business.name if business else "Bharat Medical Store"
+                    
+                    # Format message
+                    message = format_invoice_message(invoice, customer_name, business_name)
+                    
+                    # Send via Telegram (async call from sync context)
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    sent = loop.run_until_complete(send_telegram_message(telegram_chat_id, message))
+                    loop.close()
+                    
+                    if sent:
+                        logger.info(f"Invoice {invoice.id} sent to customer via Telegram chat {telegram_chat_id}")
+                        result["telegram_sent"] = True
+                    else:
+                        logger.warning(f"Failed to send invoice {invoice.id} via Telegram")
+                        result["telegram_sent"] = False
+                except Exception as e:
+                    logger.error(f"Error sending invoice via Telegram: {e}")
+                    result["telegram_sent"] = False
+            else:
+                logger.info(f"No Telegram chat_id available for invoice {invoice.id}")
+                result["telegram_sent"] = False
         else:
             logger.warning(f"Action {action.id} missing required payload fields: customer_name={customer_name}, amount={amount}")
             result["success"] = False

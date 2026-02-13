@@ -1,4 +1,28 @@
 """
+
+
+def build_prompt(message: str, context: dict | None = None) -> str:
+  """Build a full prompt with system instructions, context, and user text."""
+  context_payload = context or {}
+  context_json = json.dumps(context_payload, ensure_ascii=True)
+  return (
+    f"{SYSTEM_PROMPT}\n\n"
+    f"Context (optional, may be empty): {context_json}\n\n"
+    f"User message: {message}\n\n"
+    "Return ONLY valid JSON as per the schema."
+  )
+
+
+def build_prompt(message: str, context: dict | None = None) -> str:
+  """Build a full prompt with system instructions, context, and user text."""
+  context_payload = context or {}
+  context_json = json.dumps(context_payload, ensure_ascii=True)
+  return (
+    f"{SYSTEM_PROMPT}\n\n"
+    f"Context (optional, may be empty): {context_json}\n\n"
+    f"User message: {message}\n\n"
+    "Return ONLY valid JSON as per the schema."
+  )
 System Prompts for Groq LLM — Intent Extraction ONLY.
 
 ================================================================================
@@ -53,6 +77,19 @@ WHY THIS MATTERS FOR SECURITY:
 # ==============================================================================
 
 SYSTEM_PROMPT = """You are an intent extraction engine for an Indian pharmacy business bot.
+import json
+
+
+import json
+
+
+import json
+
+
+import json
+
+
+SYSTEM_PROMPT = """
 The business domain is FIXED as "pharmacy".
 
 Your job:
@@ -290,6 +327,30 @@ def build_prompt(user_message: str, context: dict = None) -> str:
     Returns:
         Complete prompt string ready for LLM
     """
+
+
+    def build_prompt(message: str, context: dict | None = None) -> str:
+      """Build a full prompt with system instructions, context, and user text."""
+      context_payload = context or {}
+      context_json = json.dumps(context_payload, ensure_ascii=True)
+      return (
+        f"{SYSTEM_PROMPT}\n\n"
+        f"Context (optional, may be empty): {context_json}\n\n"
+        f"User message: {message}\n\n"
+        "Return ONLY valid JSON as per the schema."
+      )
+
+
+    def build_prompt(message: str, context: dict | None = None) -> str:
+      """Build a full prompt with system instructions, context, and user text."""
+      context_payload = context or {}
+      context_json = json.dumps(context_payload, ensure_ascii=True)
+      return (
+        f"{SYSTEM_PROMPT}\n\n"
+        f"Context (optional, may be empty): {context_json}\n\n"
+        f"User message: {message}\n\n"
+        "Return ONLY valid JSON as per the schema."
+      )
     context_str = ""
     if context:
         context_parts = []

@@ -111,9 +111,9 @@ def validate_and_create_draft(
             "quantity": quantity,
             "unit_price": unit_price,   # Price per unit
             "amount": amount,           # Total = unit_price × quantity
-            "amount": amount,           # Total = unit_price × quantity
             "action_type": "Invoice",
             "channel": "Telegram",
+            "telegram_chat_id": telegram_chat_id,  # Store for invoice delivery
             "requires_prescription": requires_prescription or item.requires_prescription,  # Compliance flag
             "seller": "Pharmacy",       # ROLE: Always seller
             "buyer": customer           # ROLE: Always buyer (never confused)

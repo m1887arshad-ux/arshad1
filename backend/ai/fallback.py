@@ -71,13 +71,19 @@ def parse_message_fallback(message: str) -> dict:
     elif intent == IntentType.APPROVE_INVOICE:
         confidence = ConfidenceLevel.HIGH
     
+    # If business intent found, mark as business_action
+    # Otherwise default to unknown (LLM will refine classification)
+    content_type = "business_action" if intent != IntentType.UNKNOWN else "unknown"
+    
     result = {
+        "normalized_text": message,
+        "content_type": content_type,
         "intent": intent.value,
         "product": product,
         "quantity": quantity,
         "customer": customer,
         "confidence": confidence.value,
-        "source": "fallback"
+        "source": "fallback"  # Audit: came from keyword fallback, not LLM
     }
     
     logger.info(f"🔄 Fallback parsed: intent={result['intent']}")

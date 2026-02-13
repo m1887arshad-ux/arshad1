@@ -10,11 +10,9 @@ import {
   getCurrentOwner, 
   getRecentActions, 
   getLowStockItems,
-  getExpiringItems,
   APIError,
   type AgentAction,
-  type LowStockItem,
-  type ExpiringItem
+  type LowStockItem
 } from "@/lib/api";
 
 const POLL_INTERVAL = 10000; // 10 seconds
@@ -24,7 +22,6 @@ export default function DashboardPage() {
   const [ownerName, setOwnerName] = useState("Owner");
   const [actions, setActions] = useState<AgentAction[]>([]);
   const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
-  const [expiringItems, setExpiringItems] = useState<ExpiringItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -50,14 +47,12 @@ export default function DashboardPage() {
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
-      const [list, lowStock, expiring] = await Promise.all([
+      const [list, lowStock] = await Promise.all([
         getRecentActions(),
         getLowStockItems(20),
-        getExpiringItems(30),
       ]);
       setActions(list);
       setLowStockItems(lowStock);
-      setExpiringItems(expiring);
       setLastUpdated(new Date());
       setError("");
     } catch (err) {
@@ -189,39 +184,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Expiry Alert Banner */}
-        {expiringItems.length > 0 && (
-          <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0">
-                <CalendarIcon className="w-5 h-5 text-orange-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold text-orange-800 dark:text-orange-200">
-                  ⏰ {expiringItems.length} medicine{expiringItems.length > 1 ? "s" : ""} expiring soon!
-                </h3>
-                <p className="text-sm text-orange-700 dark:text-orange-300 mt-1">
-                  {expiringItems.slice(0, 3).map((item, i) => (
-                    <span key={item.id}>
-                      <strong>{item.item_name}</strong> ({item.days_until_expiry} days)
-                      {i < Math.min(expiringItems.length, 3) - 1 && ", "}
-                    </span>
-                  ))}
-                  {expiringItems.length > 3 && (
-                    <span> and {expiringItems.length - 3} more...</span>
-                  )}
-                </p>
-                <Link
-                  href="/records?tab=inventory"
-                  className="inline-block mt-2 text-sm text-orange-800 dark:text-orange-200 font-medium hover:underline"
-                >
-                  View Inventory →
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-        
         {/* Trust message */}
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <p className="text-sm text-blue-800 dark:text-blue-200">

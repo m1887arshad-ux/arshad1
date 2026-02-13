@@ -177,16 +177,19 @@ def _parse_and_validate_json(llm_response: str) -> Optional[ParsedIntent]:
         return None
 
 
-def _unknown_intent(source: str = "fallback") -> dict:
+def _unknown_intent(source: str = "fallback", content_type: str = "unknown") -> dict:
     """Generate unknown intent response.
     
     Args:
-        source: "llm" or "fallback"
+        source: "llm" or "fallback" (audit trail)
+        content_type: Classification of non-business content (medical_query, greeting, abusive, etc.)
         
     Returns:
-        Unknown intent dictionary
+        Unknown intent dictionary with proper content_type
     """
     return {
+        "normalized_text": "",
+        "content_type": content_type,
         "intent": IntentType.UNKNOWN.value,
         "product": None,
         "quantity": None,

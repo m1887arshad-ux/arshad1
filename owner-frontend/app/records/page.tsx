@@ -14,6 +14,7 @@ import {
   removeInventoryItem,
   exportInvoicesCSV,
   exportInventoryCSV,
+  downloadInvoicePDF,
 } from "@/lib/api";
 import type { InventoryItemCreate } from "@/lib/api";
 
@@ -324,13 +325,28 @@ export default function RecordsPage() {
                     <td className="px-4 py-3 text-sm text-gray-700">{row.customer}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{row.amount}</td>
                     <td className="px-4 py-3 text-sm hidden sm:table-cell">
-                      <span className="text-primary hover:underline cursor-pointer">
+                      <a
+                        href={`http://127.0.0.1:8000/records/invoices/${row.id}/pdf`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline cursor-pointer"
+                      >
                         View PDF
-                      </span>
+                      </a>
                       <span className="text-gray-400 mx-1">/</span>
-                      <span className="text-primary hover:underline cursor-pointer">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await downloadInvoicePDF(row.id);
+                          } catch (error) {
+                            console.error('Failed to download invoice:', error);
+                            alert('Failed to download invoice PDF');
+                          }
+                        }}
+                        className="text-primary hover:underline cursor-pointer bg-transparent border-none p-0"
+                      >
                         Download
-                      </span>
+                      </button>
                     </td>
                   </tr>
                 ))}

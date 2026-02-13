@@ -43,20 +43,20 @@ async def lifespan(app: FastAPI):
     2. Stop proactive scheduler
     """
     try:
-        print("🚀 Initializing database...")
+        print("[*] Initializing database...")
         init_db()
-        print("✅ Database initialized")
+        print("[OK] Database initialized")
         
         if settings.TELEGRAM_BOT_TOKEN:
-            print("🤖 Starting Telegram bot...")
+            print("[*] Starting Telegram bot...")
             start_bot_background()
-            print("⏰ Starting reminder scheduler...")
+            print("[*] Starting reminder scheduler...")
             start_reminder_scheduler()
-            print("✅ Bot and scheduler started")
+            print("[OK] Bot and scheduler started")
         else:
-            print("⚠️ Telegram bot disabled (no token)")
+            print("[WARN] Telegram bot disabled (no token)")
     except Exception as e:
-        print(f"❌ Startup error: {e}")
+        print(f"[ERROR] Startup error: {e}")
         import traceback
         traceback.print_exc()
     
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
             stop_bot_background()
             stop_reminder_scheduler()
     except Exception as e:
-        print(f"❌ Shutdown error: {e}")
+        print(f"[ERROR] Shutdown error: {e}")
 
 
 app = FastAPI(

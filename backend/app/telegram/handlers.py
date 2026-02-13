@@ -588,13 +588,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"[Groq] result={groq_result}")
         
         intent = groq_result.get("intent", "unknown")
+        content_type = groq_result.get("content_type", "unknown")
         product = groq_result.get("product")
         customer = groq_result.get("customer")
         quantity = groq_result.get("quantity")
         confidence = groq_result.get("confidence", "low")
         
         # ==================================================================
-        # STEP 3: ROUTE BASED ON INTENT
+        # STEP 3: HANDLE NON-BUSINESS CONTENT FIRST
+        # ==================================================================
+        # If content is not a business action, handle it before checking intent
+        
+        if content_type == "medical_query":
+            # Medical queries need professional advice
+            await update.message.reply_text(
+                "⚠️ Medical advice ke liye doctor se consult karein.\n\n"
+                f"Aapka sawal: '{text}'\n\n"
+                "Main sirf inventory aur billing mein help kar sakta hoon:\n"
+                "• Stock check: 'Paracetamol hai?'\n"
+                "• Symptom search: 'bukhar ke liye medicine'\n"
+                "• Invoice: 'Rahul ko 10 Dolo 650'"
+            )
+            return
+        
+        elif content_type == "abusive":
+            # Don't engage with abusive content
+            logger.warning(f"[Abuse] chat_id={chat_id} sent abusive message")
+            await update.message.reply_text(
+                "🙏 Aapke saath karte communication respectfully.\n"
+                "Polite questions ke saath help kar sakta hoon."
+            )
+            return
+        
+        elif content_type == "greeting":
+            # Friendly responses to greetings
+            logger.info(f"[Greeting] chat_id={chat_id}")
+            await update.message.reply_text(
+                "🙏 Namaste!\n\n"
+                "Kya help chahiye?\n"
+                "• Stock check: 'Paracetamol hai?'\n"
+                "• Invoice: 'Rahul ko 10 Dolo 650'\n"
+                "• Symptom search: 'bukhar ke liye medicine'"
+            )
+            return
+        
+        # ==================================================================
+        # STEP 4: ROUTE BASED ON INTENT (for business_action only)
         # ==================================================================
         
         # Stock check - instant response
@@ -650,16 +689,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await update.message.reply_text(resp["message"])
             return
         
-        # Unknown intent - medical advice, greetings, out-of-scope
+        # Unknown intent - provide context-aware response
         if intent == "unknown":
-            await update.message.reply_text(
-                "🚫 Sorry, main sirf inventory aur billing mein help kar sakta hoon.\n\n"
-                "Kya kar sakta hoon:\n"
-                "• Stock check: 'Paracetamol hai?'\n"
-                "• Invoice: 'Rahul ko 10 Dolo 650'\n"
-                "• Symptom search: 'bukhar hai'\n\n"
-                "⚠️ Medical advice ke liye doctor se consult karein."
-            )
+            # Generate response based on content type
+            if content_type == "informational":
+                # Information request but not actionable on our system
+                await update.message.reply_text(
+                    "📚 General information ke liye search engine use karein.\n\n"
+                    "Main pharmacy inventory aur billing mein help kar sakta hoon:\n"
+                    "• Stock check: 'Paracetamol hai?'\n"
+                    "• Invoice: 'Rahul ko 10 Dolo 650'\n"
+                    "• Symptom search: 'bukhar ke liye medicine'"
+                )
+            else:
+                # Default response for unclear intent
+                await update.message.reply_text(
+                    "🤔 Samajh nahi aaya.\n\n"
+                    "Try:\n"
+                    "• 'Paracetamol hai?' - Stock check\n"
+                    "• 'Rahul ko 10 Dolo 650' - Invoice\n"
+                    "• 'bukhar' - Medicines for symptoms"
+                )
             return
         
         # Unknown intent - try keyword fallback
