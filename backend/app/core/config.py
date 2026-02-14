@@ -28,6 +28,11 @@ class Settings:
     if not SECRET_KEY:
         # In production, this will fail immediately (no weak defaults)
         # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+        if os.getenv("ENVIRONMENT", "development") == "production":
+            raise ValueError(
+                "⛔ CRITICAL: SECRET_KEY must be set in production environment. "
+                "Generate with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
         import warnings
         warnings.warn(
             "⚠️  SECRET_KEY not set in environment. Using development default. "

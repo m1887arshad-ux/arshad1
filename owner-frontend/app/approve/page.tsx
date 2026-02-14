@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { OwnerShell } from "@/components/OwnerShell";
 import { getCurrentUser, getCurrentOwner } from "@/lib/api";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
 type AgentAction = {
   id: number;
   business_id: number;
@@ -56,7 +58,7 @@ export default function ApprovePage() {
         
         // Fetch pending actions
         const token = localStorage.getItem("bharat_owner_token");
-        const res = await fetch("http://127.0.0.1:8000/agent/pending", {
+        const res = await fetch(`${API_BASE}/agent/pending`, {
           headers: {
             "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json"
@@ -84,7 +86,7 @@ export default function ApprovePage() {
     setApproving(actionId);
     try {
       const token = localStorage.getItem("bharat_owner_token");
-      const res = await fetch(`http://127.0.0.1:8000/agent/actions/${actionId}/approve`, {
+      const res = await fetch(`${API_BASE}/agent/actions/${actionId}/approve`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -114,7 +116,7 @@ export default function ApprovePage() {
     setRejecting(actionId);
     try {
       const token = localStorage.getItem("bharat_owner_token");
-      const res = await fetch(`http://127.0.0.1:8000/agent/actions/${actionId}/reject`, {
+      const res = await fetch(`${API_BASE}/agent/actions/${actionId}/reject`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,

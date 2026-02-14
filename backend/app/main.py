@@ -23,6 +23,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from app.api.routes import auth, business, agent, records, analytics
 from app.api.routes import settings as settings_routes
 from app.core.config import settings
+from app.core.rate_limiter import RateLimitMiddleware
 from app.db.init_db import init_db
 from app.telegram.bot import start_bot_background, stop_bot_background
 from app.agent.proactive_scheduler import start_reminder_scheduler, stop_reminder_scheduler
@@ -105,6 +106,9 @@ app.add_middleware(
     max_age=600,  # Cache preflight for 10 minutes
     expose_headers=["Content-Type"],
 )
+
+# SECURITY: Rate limiting to prevent brute force and DoS attacks
+app.add_middleware(RateLimitMiddleware)
 
 # SECURITY: Add security headers middleware
 @app.middleware("http")

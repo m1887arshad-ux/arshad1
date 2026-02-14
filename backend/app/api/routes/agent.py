@@ -98,16 +98,45 @@ def approve_action(action_id: int, db: Session = Depends(get_db), current_user: 
 
 @router.post("/actions/{action_id}/reject")
 def reject_action(action_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Owner rejects action. No execution. Logged for visibility."""
+    """Owner rejects action. Sends Telegram notification to user."""
+    from app.telegram.bot import send_telegram_message
+    
     business = _get_owner_business(db, current_user)
     action = db.query(AgentAction).filter(AgentAction.id == action_id, AgentAction.business_id == business.id).first()
     if not action:
         raise HTTPException(status_code=404, detail="Action not found")
     if action.status != "DRAFT":
         raise HTTPException(status_code=400, detail=f"Action already {action.status}")
+    
     action.status = "REJECTED"
     db.commit()
+    
     logger.info(f"Action {action_id} rejected by owner {current_user.id} for business {business.id}")
+    
+    # Send Telegram notification to customer
+    payload = action.payload or {}
+    telegram_chat_id = payload.get("telegram_chat_id")
+    
+    if telegram_chat_id:
+        try:
+            customer_name = payload.get("customer_name", "Customer")
+            product_name = payload.get("product", "item")
+            quantity = payload.get("quantity", 0)
+            
+            rejection_message = (
+                f"❌ Order Rejected\n\n"
+                f"Your order has been rejected by the owner:\n\n"
+                f"👤 Customer: {customer_name}\n"
+                f"📦 Product: {product_name}\n"
+                f"🔢 Quantity: {int(quantity) if quantity else 'N/A'}\n\n"
+                f"Please contact the store for more information or place a new order."
+            )
+            
+            send_telegram_message(telegram_chat_id, rejection_message)
+            logger.info(f"Rejection notification sent to Telegram chat_id={telegram_chat_id}")
+        except Exception as e:
+            logger.error(f"Failed to send rejection notification to Telegram: {e}")
+    
     return {"ok": True, "status": "REJECTED"}
 
 

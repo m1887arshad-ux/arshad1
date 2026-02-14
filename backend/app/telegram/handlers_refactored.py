@@ -182,32 +182,50 @@ def classify_intent(text: str, current_state: str) -> str:
     """
     text_lower = text.lower().strip()
     
-    # Cancel (highest priority)
-    if any(kw in text_lower for kw in ["cancel", "stop", "band", "nahi", "mat karo", "rehne do"]):
+    # Cancel (highest priority — allowed even mid-flow)
+    if any(kw in text_lower for kw in ["cancel", "stop", "band", "mat karo", "rehne do"]):
         return "cancel"
     
-    # Help
-    if any(kw in text_lower for kw in ["help", "kya kar", "batao", "kaise"]):
-        return "help"
+    # ===================================================================
+    # MID-FLOW FAST PATH: If user is in an active order step,
+    # route directly to "order" handler WITHOUT keyword matching.
+    # This prevents customer names like "Rahul" from being parsed
+    # as stock queries, symptom searches, etc.
+    # Only "cancel" is checked above as a valid escape hatch.
+    # ===================================================================
+    if current_state in (
+        OrderFlowState.NEED_PRODUCT,
+        OrderFlowState.NEED_QUANTITY,
+        OrderFlowState.NEED_CUSTOMER,
+    ):
+        return "order"
     
     # Confirmation (only relevant in READY_TO_CONFIRM state)
     if current_state == OrderFlowState.READY_TO_CONFIRM:
         if any(kw in text_lower for kw in ["confirm", "yes", "haan", "ha", "theek", "ok", "sahi"]):
             return "confirm"
+        # Allow cancel keyword "nahi" only in confirmation state
+        if "nahi" in text_lower:
+            return "cancel"
+        # Any other input in confirm state → treat as order correction
+        return "order"
+    
+    # === Below only runs when state == IDLE ===
+    
+    # Help
+    if any(kw in text_lower for kw in ["help", "kya kar", "kaise"]):
+        return "help"
     
     # Query: Stock check
     if any(kw in text_lower for kw in ["hai kya", "available", "stock", "milega", "check"]) or text_lower.endswith("?"):
         return "query_stock"
     
     # Query: Symptom
-    if any(kw in text_lower for kw in ["bukhar", "fever", "dard", "pain", "cold", "sardi", "headache", "sir"]):
+    if any(kw in text_lower for kw in ["bukhar", "fever", "dard", "pain", "cold", "sardi", "headache", "sir dard"]):
         return "query_symptom"
     
-    # Order (default if in flow or has order keywords)
-    if current_state != OrderFlowState.IDLE:
-        return "order"
-    
-    if any(kw in text_lower for kw in ["chahiye", "order", "bill", "lena", "de do", "dedo"]):
+    # Order keywords
+    if any(kw in text_lower for kw in ["chahiye", "order", "bill", "lena", "de do", "dedo", "batao"]):
         return "order"
     
     # Check if message has numeric quantity (suggests order intent)
@@ -229,8 +247,8 @@ def determine_next_state(entities: dict, confidence: dict) -> str:
     Rules:
     1. Need product if missing or low confidence
     2. Need quantity if missing or low confidence
-    3. Customer is optional (default to "Walk-in Customer")
-    4. Ready to confirm if product + quantity are valid
+    3. Need customer name (MANDATORY for invoice generation)
+    4. Ready to confirm if product + quantity + customer are valid
     """
     # Product validation (CRITICAL - must be resolved)
     if not entities.get("product") or confidence.get("product", 0.0) < 0.7:
@@ -240,8 +258,9 @@ def determine_next_state(entities: dict, confidence: dict) -> str:
     if not entities.get("quantity") or confidence.get("quantity", 0.0) < 0.7:
         return OrderFlowState.NEED_QUANTITY
     
-    # Customer is optional - if not provided, use default
-    # We don't ask for customer unless user explicitly wants to add it
+    # Customer validation (MANDATORY for proper invoice generation)
+    if not entities.get("customer") or not entities.get("customer").strip():
+        return OrderFlowState.NEED_CUSTOMER
     
     return OrderFlowState.READY_TO_CONFIRM
 
@@ -283,14 +302,15 @@ async def handle_query_stock(update, db, business_id: int, text: str):
         )
         return
     
-    # Resolve to canonical product
-    resolved = resolve_product(db, business_id, product_extract["value"], min_confidence=0.6)
+    # Resolve to canonical product (use same threshold as order creation)
+    resolved = resolve_product(db, business_id, product_extract["value"], min_confidence=0.7)
     
     if resolved:
         product = resolved
         stock_qty = int(product["stock_quantity"])
         
         msg = f"✅ {product['canonical_name']}\n"
+        msg += f"   (ID: #{product['product_id']})\n"
         msg += f"📦 Stock: {stock_qty} units\n"
         msg += f"💰 Price: ₹{float(product['price_per_unit']):.2f} per unit\n"
         
@@ -375,73 +395,120 @@ async def handle_order_flow(update, db, business_id: int, chat_id: int, text: st
     
     logger.info(f"[OrderFlow] state={current_state}, text='{text}'")
     
-    # Extract entities from current message
-    extracted = extract_all_entities(
-        text,
-        context={
-            "last_product": raw_inputs.get("product_input"),
-            "last_quantity": entities.get("quantity"),
-            "last_customer": entities.get("customer")
-        },
-        default_owner_name=owner_name
-    )
+    # STATE-AWARE ENTITY EXTRACTION
+    # When FSM is waiting for specific input, treat it as such WITHOUT re-parsing
+    # This prevents "Rahul" from being interpreted as a medicine name
     
-    logger.info(f"[EntityExtract] product={extracted['product']}, qty={extracted['quantity']}, customer={extracted['customer']}")
-    
-    # Update context with extracted entities
-    
-    # Product: Resolve to canonical if extracted
-    if extracted["product"]["value"] and extracted["product"]["confidence"] > 0.5:
-        raw_inputs["product_input"] = extracted["product"]["value"]
+    if current_state == OrderFlowState.NEED_CUSTOMER:
+        # In NEED_CUSTOMER state, treat ANY input as customer name
+        # Do NOT try to extract product/quantity from this input
+        logger.info(f"[FSM] NEED_CUSTOMER state - accepting '{text}' as customer name")
+        entities["customer"] = text.strip()
+        confidence["customer"] = 1.0  # High confidence since we explicitly asked for it
+        raw_inputs["customer_input"] = text
         
-        # Resolve to canonical product model
-        resolved = resolve_product(db, business_id, extracted["product"]["value"], min_confidence=0.7)
+        # Determine next state (should be READY_TO_CONFIRM since we have all data)
+        next_state = determine_next_state(entities, confidence)
+        logger.info(f"[StateTransition] {current_state} → {next_state}")
         
-        if resolved:
-            # CRITICAL: Validate product_id is present
-            if "product_id" not in resolved or resolved["product_id"] is None:
-                logger.error(
-                    f"[ProductResolved] CRITICAL: resolve_product returned no product_id! "
-                    f"Input: '{extracted['product']['value']}', Result: {resolved}"
+        # Skip to confirmation preparation
+        context["state"] = next_state
+        context["entities"]["customer"] = entities["customer"]
+        save_conversation_context(db, chat_id, context)
+        
+        # Jump to confirmation display (handled below in next_state routing)
+        # Continue to the state-specific response section
+    
+    elif current_state == OrderFlowState.NEED_QUANTITY:
+        # In NEED_QUANTITY state, extract ONLY quantity, ignore product/customer
+        from app.services.entity_extractor import extract_quantity_with_confidence
+        qty_extract = extract_quantity_with_confidence(text)
+        
+        if qty_extract["value"] and qty_extract["confidence"] > 0.5:
+            entities["quantity"] = qty_extract["value"]
+            confidence["quantity"] = qty_extract["confidence"]
+            raw_inputs["quantity_input"] = text
+            logger.info(f"[FSM] NEED_QUANTITY state - extracted quantity={qty_extract['value']}")
+        else:
+            # Quantity not understood
+            await update.message.reply_text(
+                "🤔 Quantity samajh nahi aayi\n"
+                "Please provide a number: '10', '5', 'ek', 'do'"
+            )
+            return
+        
+        next_state = determine_next_state(entities, confidence)
+        logger.info(f"[StateTransition] {current_state} → {next_state}")
+    
+    else:
+        # For IDLE or NEED_PRODUCT states, do full entity extraction
+        # Extract entities from current message
+        extracted = extract_all_entities(
+            text,
+            context={
+                "last_product": raw_inputs.get("product_input"),
+                "last_quantity": entities.get("quantity"),
+                "last_customer": entities.get("customer")
+            },
+            default_owner_name=owner_name
+        )
+        
+        logger.info(f"[EntityExtract] product={extracted['product']}, qty={extracted['quantity']}, customer={extracted['customer']}")
+        
+        # Update context with extracted entities
+        
+        # Product: Resolve to canonical if extracted
+        if extracted["product"]["value"] and extracted["product"]["confidence"] > 0.5:
+            raw_inputs["product_input"] = extracted["product"]["value"]
+            
+            # Resolve to canonical product model
+            resolved = resolve_product(db, business_id, extracted["product"]["value"], min_confidence=0.7)
+            
+            if resolved:
+                # CRITICAL: Validate product_id is present
+                if "product_id" not in resolved or resolved["product_id"] is None:
+                    logger.error(
+                        f"[ProductResolved] CRITICAL: resolve_product returned no product_id! "
+                        f"Input: '{extracted['product']['value']}', Result: {resolved}"
+                    )
+                    await update.message.reply_text(
+                        f"❌ System error resolving '{extracted['product']['value']}'. Please try again."
+                    )
+                    reset_conversation(db, chat_id)
+                    return
+                
+                entities["product"] = resolved
+                confidence["product"] = resolved["confidence"]
+                logger.info(
+                    f"[ProductResolved] '{extracted['product']['value']}' → "
+                    f"'{resolved['canonical_name']}' (product_id={resolved['product_id']})"
                 )
+            else:
+                # Product not found in inventory
                 await update.message.reply_text(
-                    f"❌ System error resolving '{extracted['product']['value']}'. Please try again."
+                    f"❌ '{extracted['product']['value']}' stock mein nahi mila\n\n"
+                    "💡 Stock check karo: '<medicine name> hai?'\n"
+                    "Ya symptom batao: 'bukhar ka medicine'"
                 )
                 reset_conversation(db, chat_id)
                 return
-            
-            entities["product"] = resolved
-            confidence["product"] = resolved["confidence"]
-            logger.info(
-                f"[ProductResolved] '{extracted['product']['value']}' → "
-                f"'{resolved['canonical_name']}' (product_id={resolved['product_id']})"
-            )
-        else:
-            # Product not found in inventory
-            await update.message.reply_text(
-                f"❌ '{extracted['product']['value']}' stock mein nahi mila\n\n"
-                "💡 Stock check karo: '<medicine name> hai?'\n"
-                "Ya symptom batao: 'bukhar ka medicine'"
-            )
-            reset_conversation(db, chat_id)
-            return
-    
-    # Quantity: Update if extracted
-    if extracted["quantity"]["value"] and extracted["quantity"]["confidence"] > 0.5:
-        entities["quantity"] = extracted["quantity"]["value"]
-        confidence["quantity"] = extracted["quantity"]["confidence"]
-        raw_inputs["quantity_input"] = text
-    
-    # Customer: Update if extracted (but it's optional)
-    if extracted["customer"]["value"] and extracted["customer"]["confidence"] > 0.7:
-        entities["customer"] = extracted["customer"]["value"]
-        confidence["customer"] = extracted["customer"]["confidence"]
-        raw_inputs["customer_input"] = text
-    
-    # Determine next state based on entity completeness
-    next_state = determine_next_state(entities, confidence)
-    
-    logger.info(f"[StateTransition] {current_state} → {next_state}")
+        
+        # Quantity: Update if extracted
+        if extracted["quantity"]["value"] and extracted["quantity"]["confidence"] > 0.5:
+            entities["quantity"] = extracted["quantity"]["value"]
+            confidence["quantity"] = extracted["quantity"]["confidence"]
+            raw_inputs["quantity_input"] = text
+        
+        # Customer: Update if extracted (but it's optional)
+        if extracted["customer"]["value"] and extracted["customer"]["confidence"] > 0.7:
+            entities["customer"] = extracted["customer"]["value"]
+            confidence["customer"] = extracted["customer"]["confidence"]
+            raw_inputs["customer_input"] = text
+        
+        # Determine next state based on entity completeness
+        next_state = determine_next_state(entities, confidence)
+        
+        logger.info(f"[StateTransition] {current_state} → {next_state}")
     
     # Handle state-specific responses
     if next_state == OrderFlowState.NEED_PRODUCT:
@@ -463,11 +530,43 @@ async def handle_order_flow(update, db, business_id: int, chat_id: int, text: st
         )
         return
     
+    elif next_state == OrderFlowState.NEED_CUSTOMER:
+        # Ask for customer name (MANDATORY)
+        # CRITICAL: Save state BEFORE asking — so next message knows we expect customer name
+        context["state"] = next_state
+        save_conversation_context(db, chat_id, context)
+        product_name = entities["product"]["canonical_name"]
+        quantity = entities["quantity"]
+        await update.message.reply_text(
+            f"👤 {product_name} x {int(quantity)} - Kis customer ke liye?\n"
+            "Example: 'Rahul', 'Priya', 'mujhe' (for yourself)"
+        )
+        return
+    
     elif next_state == OrderFlowState.READY_TO_CONFIRM:
         # Show confirmation with deterministic pricing
         product = entities["product"]
         quantity = entities["quantity"]
-        customer = entities.get("customer") or "Walk-in Customer"
+        customer = entities.get("customer")
+        
+        # Validate customer is present
+        if not customer or not customer.strip():
+            await update.message.reply_text("❌ Customer name required. Please provide customer name.")
+            context["state"] = OrderFlowState.NEED_CUSTOMER
+            save_conversation_context(db, chat_id, context)
+            return
+        
+        # VALIDATION: Ensure product_id is present before confirmation
+        if not isinstance(product, dict) or "product_id" not in product or product.get("product_id") is None:
+            logger.error(
+                f"[Confirmation] CRITICAL: product entity invalid before confirmation! "
+                f"Product: {product}"
+            )
+            await update.message.reply_text(
+                "❌ Product information corrupted. Please start over."
+            )
+            reset_conversation(db, chat_id)
+            return
         
         # DETERMINISTIC BILLING: price_per_unit × quantity
         unit_price = float(product["price_per_unit"])
@@ -487,6 +586,7 @@ async def handle_order_flow(update, db, business_id: int, chat_id: int, text: st
             f"🏪 Seller: {seller}\n"
             f"👤 Buyer: {buyer}\n"
             f"📦 Product: {product['canonical_name']}\n"
+            f"   (ID: #{product['product_id']})\n"
             f"🔢 Quantity: {int(quantity)} units\n"
             f"💰 Price: ₹{unit_price:.2f} × {int(quantity)} = ₹{total_amount:.2f}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -515,10 +615,14 @@ async def handle_order_confirm(update, db, business_id: int, chat_id: int):
     
     product = entities["product"]
     quantity = entities["quantity"]
-    customer = entities.get("customer") or "Walk-in Customer"
+    customer = entities.get("customer")
     
-    if not product or not quantity:
-        await update.message.reply_text("❌ Order incomplete. Please start again.")
+    # Validate all required fields
+    if not product or not quantity or not customer or not customer.strip():
+        await update.message.reply_text(
+            "❌ Order incomplete. Missing required information.\n"
+            "Please start again with: product, quantity, and customer name."
+        )
         reset_conversation(db, chat_id)
         return
     
@@ -531,9 +635,9 @@ async def handle_order_confirm(update, db, business_id: int, chat_id: int):
             f"[OrderConfirm] CRITICAL: product_id is missing! "
             f"Product entity: {product}"
         )
-        # Attempt recovery: re-resolve product from canonical name
+        # Attempt recovery: re-resolve product from canonical name with SAME threshold
         from app.services.product_resolver import resolve_product
-        resolved = resolve_product(db, business_id, canonical_name, min_confidence=0.5)
+        resolved = resolve_product(db, business_id, canonical_name, min_confidence=0.7)
         if resolved:
             product_id = resolved["product_id"]
             canonical_name = resolved["canonical_name"]

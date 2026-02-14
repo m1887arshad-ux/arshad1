@@ -49,7 +49,7 @@ NUMBER_WORDS = {
     # Hindi/Hinglish
     "ek": 1, "do": 2, "teen": 3, "char": 4, "paanch": 5, "panch": 5,
     "chhe": 6, "saat": 7, "aath": 8, "aat": 8, "nau": 9, "das": 10,
-    "gyarah": 11, "barah": 12, "pandrah": 15, "bees": 20, "beeس": 20,
+    "gyarah": 11, "barah": 12, "pandrah": 15, "bees": 20,
     "tees": 30, "chalis": 40, "pachas": 50, "sau": 100,
     
     # Common phrases
@@ -107,8 +107,11 @@ def extract_quantity_with_confidence(
             pass
     
     # Try word-based extraction (medium confidence)
+    # Use word boundaries to prevent false matches (e.g., "done" shouldn't match "one")
     for word, num in NUMBER_WORDS.items():
-        if word in text_lower:
+        # Check if word appears as a complete word, not substring
+        pattern = r'\b' + re.escape(word) + r'\b'
+        if re.search(pattern, text_lower):
             return {
                 "value": float(num),
                 "confidence": 0.85,  # Medium-high confidence for words
@@ -142,18 +145,20 @@ def extract_customer_with_confidence(
     }
     """
     if not text:
-        # Return default customer with low confidence
+        # Return None when no text provided
         return {
-            "value": "Walk-in Customer",
-            "confidence": 0.3,
-            "source": "default"
+            "value": None,
+            "confidence": 0.0,
+            "source": "none"
         }
     
     text_lower = text.lower().strip()
     
     # Check for self-references (high confidence)
+    # Use word boundaries to avoid false matches
     for self_ref in SELF_REFERENCES:
-        if self_ref in text_lower:
+        pattern = r'\b' + re.escape(self_ref) + r'\b'
+        if re.search(pattern, text_lower):
             return {
                 "value": default_owner_name,
                 "confidence": 0.9,
@@ -182,9 +187,9 @@ def extract_customer_with_confidence(
     
     # Check if text is just a name (single/double word, capitalized)
     words = text.strip().split()
-    if len(words) <= 2:
+    if len(words) > 0 and len(words) <= 2:
         # Check if it looks like a name (starts with capital)
-        if words[0][0].isupper():
+        if len(words[0]) > 0 and words[0][0].isupper():
             name = " ".join(words)
             return {
                 "value": name,
@@ -200,11 +205,11 @@ def extract_customer_with_confidence(
             "source": "context"
         }
     
-    # Default customer with low confidence
+    # No customer found - return None
     return {
-        "value": "Walk-in Customer",
-        "confidence": 0.3,
-        "source": "default"
+        "value": None,
+        "confidence": 0.0,
+        "source": "none"
     }
 
 
@@ -256,14 +261,25 @@ def extract_product_with_confidence(
                 "source": "extraction"
             }
         
-        # Otherwise use first few meaningful words
+        # Otherwise use first few meaningful words (but filter out very short words)
         if len(cleaned_words) <= 3:
-            product = " ".join(cleaned_words)
-            return {
-                "value": product,
-                "confidence": 0.6,  # Medium confidence
-                "source": "extraction"
-            }
+            # Filter out single-char and two-char words that are likely not products
+            substantial_words = [w for w in cleaned_words if len(w) > 2]
+            if substantial_words:
+                product = " ".join(substantial_words)
+                return {
+                    "value": product,
+                    "confidence": 0.6,  # Medium confidence
+                    "source": "extraction"
+                }
+            # If all words are too short, use them anyway but with lower confidence
+            elif cleaned_words:
+                product = " ".join(cleaned_words)
+                return {
+                    "value": product,
+                    "confidence": 0.4,  # Low confidence - suspicious input
+                    "source": "extraction"
+                }
     
     # Try context (low confidence)
     if context and context.get("last_product"):

@@ -1,10 +1,50 @@
 """Invoice creation. Used by executor after owner approval."""
+import re
 from sqlalchemy.orm import Session
 from decimal import Decimal
 
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.services.ledger_service import add_ledger_entry
+
+
+def sanitize_customer_name(name: str) -> str:
+    """Sanitize customer name to prevent injection and ensure clean data.
+    
+    - Remove SQL-like patterns
+    - Strip excessive whitespace
+    - Remove special characters except letters, numbers, spaces, hyphens, apostrophes
+    - Limit length to 100 characters
+    """
+    if not name:
+        raise ValueError("Customer name cannot be empty")
+    
+    # Strip and collapse whitespace
+    name = " ".join(name.strip().split())
+    
+    # Remove potentially dangerous patterns
+    dangerous_patterns = [
+        r'--',  # SQL comments
+        r';',   # SQL statement separator
+        r'\/\*', r'\*\/',  # SQL block comments
+        r'<script', r'<\/script>',  # XSS
+        r'javascript:',  # XSS
+    ]
+    
+    for pattern in dangerous_patterns:
+        name = re.sub(pattern, '', name, flags=re.IGNORECASE)
+    
+    # Keep only safe characters: letters, numbers, spaces, hyphens, apostrophes, dots
+    name = re.sub(r"[^a-zA-Z0-9\s\-'.]", '', name)
+    
+    # Limit length
+    name = name[:100]
+    
+    # Final validation
+    if not name or len(name.strip()) < 2:
+        raise ValueError("Customer name must be at least 2 characters after sanitization")
+    
+    return name.strip()
 
 
 def calculate_gst(base_amount: float, gst_rate: float = 0.18) -> dict:
@@ -31,8 +71,21 @@ def calculate_gst(base_amount: float, gst_rate: float = 0.18) -> dict:
 
 
 def get_or_create_customer(db: Session, business_id: int, name: str, phone: str | None = None) -> Customer:
-    """Find customer by name under business or create."""
-    name_clean = name.strip()
+    """Find customer by name under business or create. Sanitizes input.
+    
+    Args:
+        db: Database session
+        business_id: Business ID
+        name: Customer name (will be sanitized)
+        phone: Customer phone (optional)
+    
+    Returns:
+        Customer object
+    
+    Raises:
+        ValueError: If name is invalid after sanitization
+    """
+    name_clean = sanitize_customer_name(name)
     c = db.query(Customer).filter(Customer.business_id == business_id, Customer.name == name_clean).first()
     if c:
         return c

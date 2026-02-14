@@ -360,7 +360,7 @@ export default function RecordsPage() {
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900 hidden sm:table-cell">
-                    View/Download
+                    Download
                   </th>
                 </tr>
               </thead>
@@ -371,15 +371,6 @@ export default function RecordsPage() {
                     <td className="px-4 py-3 text-sm text-gray-700">{row.customer}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{row.amount}</td>
                     <td className="px-4 py-3 text-sm hidden sm:table-cell">
-                      <a
-                        href={`http://127.0.0.1:8000/records/invoices/${row.id}/pdf`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline cursor-pointer"
-                      >
-                        View PDF
-                      </a>
-                      <span className="text-gray-400 mx-1">/</span>
                       <button
                         onClick={async () => {
                           try {
@@ -391,7 +382,7 @@ export default function RecordsPage() {
                         }}
                         className="text-primary hover:underline cursor-pointer bg-transparent border-none p-0"
                       >
-                        Download
+                        Download PDF
                       </button>
                     </td>
                   </tr>

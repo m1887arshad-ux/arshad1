@@ -173,7 +173,10 @@ def extract_symptom(text_lower: str) -> str:
     for kw in QUERY_KEYWORDS["symptom"]:
         if kw in text_lower:
             return kw
-    return text_lower.split()[0]  # First word as symptom
+    
+    # Safety check: ensure split() returns non-empty list
+    words = text_lower.split()
+    return words[0] if words else text_lower  # First word as symptom, fallback to full text
 
 
 def extract_quantity(text_lower: str) -> Optional[float]:
@@ -190,8 +193,10 @@ def extract_quantity(text_lower: str) -> Optional[float]:
         "pachas": 50, "fifty": 50,
     }
     
+    # Use word boundaries to prevent false matches
     for word, num in number_map.items():
-        if word in text_lower:
+        pattern = r'\b' + re.escape(word) + r'\b'
+        if re.search(pattern, text_lower):
             return float(num)
     
     # Extract numeric value
@@ -218,7 +223,7 @@ def extract_customer_name(text: str) -> Optional[str]:
     """Extract customer name (simple heuristic)"""
     # If text is short and starts with capital, likely a name
     words = text.strip().split()
-    if len(words) <= 2 and words[0][0].isupper():
+    if len(words) > 0 and len(words) <= 2 and len(words[0]) > 0 and words[0][0].isupper():
         return text.strip()
     
     # Check for "mujhe" (me)

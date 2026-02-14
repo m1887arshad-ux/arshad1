@@ -199,6 +199,17 @@ def resolve_product(
         )
         return None
     
+    # AMBIGUITY DETECTION: If top 2 matches are too close, REJECT (prevent mismatch)
+    # Example: If user says "Dolo" and both Dolo 650 and Paracetamol have 0.7+ confidence
+    if second_best_match and (best_confidence - second_best_confidence) < 0.1:
+        logger.warning(
+            f"[ProductResolver] AMBIGUOUS MATCH for '{user_input}': "
+            f"Top 2 scores too close! Best='{best_match.item_name}' ({best_confidence:.2f}) "
+            f"vs Second='{second_best_match.item_name}' ({second_best_confidence:.2f}). "
+            f"Rejecting to prevent mismatch."
+        )
+        return None
+    
     logger.info(
         f"[ProductResolver] Matched '{user_input}' → '{best_match.item_name}' "
         f"(product_id={best_match.id}, confidence: {best_confidence:.2f})"
