@@ -167,7 +167,7 @@ def reset_conversation(db, chat_id: int):
 # INTENT CLASSIFICATION
 # ==============================================================================
 
-def classify_intent(text: str, current_state: str) -> str:
+def classify_intent(text: str, current_state: str, db=None, business_id=None) -> str:
     """
     Classify user intent based on keywords
     
@@ -232,6 +232,20 @@ def classify_intent(text: str, current_state: str) -> str:
     import re
     if re.search(r'\d+', text_lower):
         return "order"
+    
+    # ===================================================================
+    # PRODUCT NAME DETECTION: Before returning "unknown", check if the
+    # input matches any product in inventory. This handles cases like
+    # "Crocin Advance" where user directly types product name.
+    # ===================================================================
+    if db and business_id:
+        try:
+            product = resolve_product(db, business_id, text, min_confidence=0.6)
+            if product:
+                logger.info(f"[IntentClassifier] Detected product: '{text}' → '{product['canonical_name']}'")
+                return "order"
+        except Exception as e:
+            logger.warning(f"[IntentClassifier] Product detection failed: {e}")
     
     return "unknown"
 
@@ -757,8 +771,8 @@ async def handle_message_refactored(update: Update, context: ContextTypes.DEFAUL
         context_data = get_conversation_context(db, chat_id)
         current_state = context_data["state"]
         
-        # Classify intent
-        intent = classify_intent(text, current_state)
+        # Classify intent (with product detection)
+        intent = classify_intent(text, current_state, db, business.id)
         
         logger.info(f"[Intent] {intent}, state={current_state}")
         

@@ -1,11 +1,3 @@
-"""Fallback Parser - Keyword and pattern-based intent extraction.
-
-This is the SAFETY NET when LLM fails or is unavailable.
-Uses simple, reliable keyword matching.
-
-Ensures the bot ALWAYS works, even without AI.
-"""
-
 import re
 import logging
 from typing import Optional
@@ -14,8 +6,6 @@ from .intent_schema import IntentType, ConfidenceLevel
 
 logger = logging.getLogger(__name__)
 
-
-# Keyword patterns for intent detection
 STOCK_KEYWORDS = [
     r'\b(stock|available|hai kya|milega|mil jayega)\b',
     r'\b(kya .+ (stock|available|hai))\b',
@@ -30,22 +20,7 @@ APPROVE_KEYWORDS = [
     r'\b(approve|yes|haan|theek|ok|confirm)\b',
 ]
 
-
 def parse_message_fallback(message: str) -> dict:
-    """Parse message using keyword matching - ALWAYS works.
-    
-    This is simpler and more reliable than LLM, but less flexible.
-    Used when:
-    - LLM is unavailable
-    - LLM returns invalid output
-    - LLM confidence is too low
-    
-    Args:
-        message: User message text
-        
-    Returns:
-        Dictionary with intent and entities (same format as LLM parser)
-    """
     message_lower = message.lower().strip()
     
     logger.debug(f"Fallback parsing: {message[:50]}...")

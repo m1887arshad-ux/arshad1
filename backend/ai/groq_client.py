@@ -1,37 +1,3 @@
-"""
-Groq API Client — Secure wrapper for LLM intent extraction.
-
-================================================================================
-CRITICAL: LLM ROLE IS INTENT PLANNER ONLY
-================================================================================
-
-This client calls Groq's llama-3.3-70b-versatile model for ONE purpose:
-- Extract intent and entities from Hinglish user messages
-
-THIS CLIENT DOES NOT:
-- Execute any database operations
-- Send any messages to users
-- Perform any financial transactions
-- Access any external services besides Groq API
-
-SAFETY ARCHITECTURE:
-1. User sends message via Telegram
-2. FSM checks if user is in multi-step flow (deterministic)
-3. If not in flow, THIS CLIENT extracts intent (probabilistic)
-4. Intent goes to Decision Engine for validation
-5. Decision Engine creates DRAFT action
-6. Owner APPROVES draft on Dashboard
-7. Only THEN does Executor run
-
-WHY GROQ + llama-3.3-70b-versatile:
-- Free tier with generous limits for hackathon
-- 70B model handles Hinglish code-switching well
-- Sub-second response times (better than GPT-4)
-- JSON mode ensures structured output
-
-================================================================================
-"""
-
 import json
 import logging
 from typing import Optional
@@ -39,44 +5,16 @@ from groq import Groq, APIError, APITimeoutError, RateLimitError
 
 from app.core.config import settings
 
-# Configure logging (NEVER log API keys)
 logger = logging.getLogger(__name__)
 
-
 class GroqClient:
-    """
-    Minimal, secure wrapper for Groq API.
     
-    ================================================================================
-    LLM CONSTRAINTS (ENFORCED BY THIS CLASS)
-    ================================================================================
-    
-    - Model: llama-3.3-70b-versatile (current stable model)
-    - Temperature: 0 (deterministic output for same input)
-    - Max tokens: 256 (intent JSON is small, limits abuse)
-    - Timeout: 3 seconds (fail fast for better UX)
-    - Retries: 2 (handles transient Groq API issues)
-    
-    WHAT THIS RETURNS:
-    - Raw JSON string with intent + entities
-    - None on any error (triggers keyword fallback)
-    
-    WHAT THIS NEVER DOES:
-    - Execute actions
-    - Access database
-    - Send messages
-    - Make financial decisions
-    
-    ================================================================================
-    """
-    
-    MODEL = "llama-3.3-70b-versatile"  # Handles Hinglish well
-    TEMPERATURE = 0  # Deterministic — same input = same output
-    MAX_TOKENS = 256  # Intent JSON is small; limits prompt injection impact
-    TIMEOUT_SECONDS = 3  # Fail fast for better UX
+    MODEL = "llama-3.3-70b-versatile"
+    TEMPERATURE = 0
+    MAX_TOKENS = 256
+    TIMEOUT_SECONDS = 3
     
     def __init__(self):
-        """Initialize Groq client with API key from environment."""
         api_key = settings.GROQ_API_KEY
         
         if not api_key:
@@ -96,8 +34,7 @@ class GroqClient:
     
     def is_available(self) -> bool:
         """Check if Groq client is ready to use."""
-        return self.client is not None
-    
+        
     def extract_intent(self, prompt: str, max_retries: int = 2) -> Optional[str]:
         """
         Call Groq LLM to extract intent as JSON with retry logic.

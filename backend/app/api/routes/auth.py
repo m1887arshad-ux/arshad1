@@ -24,7 +24,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
     Register new user with password strength validation.
     
     Password requirements:
-    - Minimum 12 characters
+    - Minimum 8 characters
     - At least one special character (!@#$%^&*)
     - At least one number
     """

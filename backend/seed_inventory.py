@@ -1,4 +1,3 @@
-"""Seed pharmacy inventory with comprehensive Indian medicines."""
 from app.db.session import SessionLocal
 from app.models.business import Business
 from app.models.inventory import Inventory
@@ -7,8 +6,6 @@ import json
 
 def seed_inventory():
     db = SessionLocal()
-    
-    # Get first business (or create one if needed)
     business = db.query(Business).first()
     if not business:
         # Create default business
@@ -34,10 +31,8 @@ def seed_inventory():
     
     business_id = business.id
     
-    # Clear existing inventory for clean seed
     db.query(Inventory).filter(Inventory.business_id == business_id).delete()
     
-    # Comprehensive medicine list with disease information
     medicines = [
         {
             "name": "Paracetamol 500mg",

@@ -1,4 +1,3 @@
-"""JWT authentication. No AI. Trust: owner identity verified via JWT."""
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -8,7 +7,6 @@ from passlib.context import CryptContext
 from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)

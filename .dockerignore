@@ -1,0 +1,103 @@
+# ============================================================================
+# .dockerignore — Exclude unnecessary files from Docker build context
+# ============================================================================
+# Reduces image size and build time by excluding development/build artifacts
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+test_*.py
+*_test.py
+.tox/
+.mypy_cache/
+.hypothesis/
+
+# Virtual environments (never copy venv into container)
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-*
+
+# Git (never copy .git folder into container)
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Environment files (secrets should be passed at runtime)
+.env
+.env.*
+!.env.docker
+
+# Documentation (not needed at runtime)
+*.md
+!README.md
+docs/
+*.txt
+!requirements.txt
+
+# Frontend (not needed in backend container)
+owner-frontend/
+node_modules/
+.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package.json
+package-lock.json
+yarn.lock
+
+# Database files (database should be in container volume)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Logs
+*.log
+logs/
+
+# Docker files (no need to copy Docker configs into container)
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Deployment scripts
+deploy.sh
+.deployment/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp

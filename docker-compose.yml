@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bharat-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - ENVIRONMENT=production
+      - DATABASE_URL=sqlite:///./bharat.db
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - CORS_ALLOW_ORIGIN=http://localhost:3000,http://frontend:3000,http://127.0.0.1:3000,http://host.docker.internal:3000
+    volumes:
+      - ./backend/bharat.db:/app/bharat.db  # Persist database
+    networks:
+      - bharat-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build:
+      context: ./owner-frontend
+      dockerfile: Dockerfile
+    container_name: bharat-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - bharat-network
+    restart: unless-stopped
+
+networks:
+  bharat-network:
+    driver: bridge
+
+volumes:
+  db-volume:
+    driver: local

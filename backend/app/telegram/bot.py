@@ -1,7 +1,3 @@
-"""
-Telegram bot: receives messages, creates DRAFT actions only. No execution.
-Runs in same container as FastAPI.
-"""
 import asyncio
 import threading
 import time
@@ -16,19 +12,7 @@ from app.telegram.handlers_photo import handle_photo_message
 
 _bot_app: Optional[Application] = None
 
-
 async def _start_polling_with_retry(app, max_retries=3, initial_backoff=2):
-    """
-    Start polling with retry logic to handle Conflict errors.
-    
-    The Conflict error happens when another bot instance is already polling.
-    This can happen due to stale sessions not yet cleaned up by Telegram API.
-    
-    Args:
-        app: Telegram Application instance
-        max_retries: Number of retries before giving up
-        initial_backoff: Initial backoff time in seconds (exponential)
-    """
     for attempt in range(max_retries):
         try:
             print(f"[Telegram] Starting polling (attempt {attempt + 1}/{max_retries})...")
@@ -51,9 +35,7 @@ async def _start_polling_with_retry(app, max_retries=3, initial_backoff=2):
 
 
 def _run_bot():
-    """Run bot with new event loop in background thread."""
     global _bot_app
-    # Create new event loop for this thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -62,30 +44,22 @@ def _run_bot():
         
         # Add command handler for /start
         _bot_app.add_handler(CommandHandler("start", handle_start))
-        
-        # Add photo handler (OCR disabled - returns instruction message)
+        _bot_app.add_handler(CommandHandler("start", handle_start))
         _bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
-        
-        # Add text message handler
-        _bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        
         # Start polling in the event loop
         loop.run_until_complete(_bot_app.initialize())
         loop.run_until_complete(_bot_app.start())
         
         # Try to start polling with retries
-        success = loop.run_until_complete(_start_polling_with_retry(_bot_app))
-        if not success:
-            print("[Telegram] Bot polling failed - running without polling (API-only mode)")
+        loop.run_until_complete(_bot_app.initialize())
+        loop.run_until_complete(_bot_app.start())
         
-        # Keep running until interrupted
         loop.run_forever()
     except Exception as e:
         print(f"Telegram bot error: {e}")
     finally:
         try:
             if _bot_app:
-                loop.run_until_complete(_bot_app.stop())
                 loop.run_until_complete(_bot_app.shutdown())
         except Exception:
             pass
@@ -93,7 +67,6 @@ def _run_bot():
 
 
 def start_bot_background():
-    """Start Telegram bot in background thread. No-op if no token."""
     if not settings.TELEGRAM_BOT_TOKEN:
         return
     t = threading.Thread(target=_run_bot, daemon=True)

@@ -1,0 +1,47 @@
+# Node
+node_modules/
+npm-debug.log*
+.npm/
+
+# Next.js
+.next/
+out/
+.next-env.d.ts
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Testing
+.pytest_cache/
+jest.config.js
+__tests__/
+
+# Development
+.env.local
+.env.development.local
+.env.*.local
+.vercel/
+
+# Build
+dist/
+build/
+
+# Documentation
+README.md
+CHANGELOG.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
