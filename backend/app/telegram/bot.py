@@ -42,24 +42,34 @@ def _run_bot():
     try:
         _bot_app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
         
-        # Add command handler for /start
+        # Add handlers
         _bot_app.add_handler(CommandHandler("start", handle_start))
-        _bot_app.add_handler(CommandHandler("start", handle_start))
+        _bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         _bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
-        # Start polling in the event loop
+        
+        # Initialize the app
         loop.run_until_complete(_bot_app.initialize())
+        
+        # Start the app (starts the bot but not polling yet)
         loop.run_until_complete(_bot_app.start())
         
-        # Try to start polling with retries
-        loop.run_until_complete(_bot_app.initialize())
-        loop.run_until_complete(_bot_app.start())
+        # Start Polling with retry logic
+        success = loop.run_until_complete(_start_polling_with_retry(_bot_app))
         
-        loop.run_forever()
+        if success:
+            print("[Telegram] Bot is running and polling for messages...")
+            loop.run_forever()
+        else:
+            print("[Telegram] Failed to start polling. Bot disabled.")
     except Exception as e:
         print(f"Telegram bot error: {e}")
     finally:
         try:
             if _bot_app:
+                # Proper shutdown sequence
+                if _bot_app.updater and _bot_app.updater.running:
+                    loop.run_until_complete(_bot_app.updater.stop())
+                loop.run_until_complete(_bot_app.stop())
                 loop.run_until_complete(_bot_app.shutdown())
         except Exception:
             pass
