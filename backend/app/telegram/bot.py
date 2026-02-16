@@ -42,12 +42,17 @@ def _run_bot():
     try:
         _bot_app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
         
-        # Add command handler for /start
+        # 1. Command Handler (/start)
         _bot_app.add_handler(CommandHandler("start", handle_start))
-        # Removed duplicate add_handler line
+
+        # 2. Text Message Handler (THIS WAS MISSING)
+        # Without this, the bot ignores all text messages!
+        _bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+        # 3. Photo Handler
         _bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
         
-        # 1. Initialize the app
+        # Initialize
         loop.run_until_complete(_bot_app.initialize())
         
         # 2. Start the app (starts the bot but not polling yet)
